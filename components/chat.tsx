@@ -15,11 +15,12 @@ import { useArtifactSelector } from '@/hooks/use-artifact';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
 import { toast } from './toast';
-import type { Session } from 'next-auth';
 import { useSearchParams } from 'next/navigation';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
 import { useAutoResume } from '@/hooks/use-auto-resume';
 import { ChatSDKError } from '@/lib/errors';
+import type { PlanAccessStatus } from '@/lib/ai/models';
+import { useUpgradePrompt } from './upgrade-prompt';
 
 export function Chat({
   id,
@@ -27,18 +28,21 @@ export function Chat({
   initialChatModel,
   initialVisibilityType,
   isReadonly,
-  session,
   autoResume,
+  availableChatModelIds,
+  planAccessStatus,
 }: {
   id: string;
   initialMessages: Array<UIMessage>;
   initialChatModel: string;
   initialVisibilityType: VisibilityType;
   isReadonly: boolean;
-  session: Session;
   autoResume: boolean;
+  availableChatModelIds: string[];
+  planAccessStatus: PlanAccessStatus;
 }) {
   const { mutate } = useSWRConfig();
+  const { showUpgradePrompt } = useUpgradePrompt();
 
   const { visibilityType } = useChatVisibility({
     chatId: id,
@@ -72,9 +76,14 @@ export function Chat({
     }),
     onFinish: () => {
       mutate(unstable_serialize(getChatHistoryPaginationKey));
+      mutate('/api/billing/usage');
     },
     onError: (error) => {
       if (error instanceof ChatSDKError) {
+        if (error.type === 'rate_limit' && error.surface === 'billing') {
+          showUpgradePrompt();
+        }
+
         toast({
           type: 'error',
           description: error.message,
@@ -124,7 +133,8 @@ export function Chat({
           selectedModelId={initialChatModel}
           selectedVisibilityType={initialVisibilityType}
           isReadonly={isReadonly}
-          session={session}
+          availableChatModelIds={availableChatModelIds}
+          planAccessStatus={planAccessStatus}
         />
 
         <Messages

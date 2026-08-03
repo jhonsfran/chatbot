@@ -1,8 +1,20 @@
 'use server';
 
 import { z } from 'zod';
+import { headers } from 'next/headers';
+import { compare } from 'bcrypt-ts';
 
-import { createUser, getUser } from '@/lib/db/queries';
+import {
+  findOrCreatePendingUser,
+  setUserUnpriceCustomerId,
+} from '@/lib/db/queries';
+import { generateUUID } from '@/lib/utils';
+import {
+  getApplicationBaseUrl,
+  logUnpriceError,
+  provisionUnpriceCustomer,
+  UnpriceRuntimeError,
+} from '@/lib/unprice/runtime';
 
 import { signIn } from './auth';
 
@@ -47,6 +59,7 @@ export interface RegisterActionState {
     | 'in_progress'
     | 'success'
     | 'failed'
+    | 'provisioning_failed'
     | 'user_exists'
     | 'invalid_data';
 }
@@ -61,12 +74,30 @@ export const register = async (
       password: formData.get('password'),
     });
 
-    const [user] = await getUser(validatedData.email);
+    const user = await findOrCreatePendingUser({
+      id: generateUUID(),
+      email: validatedData.email,
+      password: validatedData.password,
+    });
 
-    if (user) {
+    if (
+      user.unpriceCustomerId ||
+      !user.password ||
+      !(await compare(validatedData.password, user.password))
+    ) {
       return { status: 'user_exists' } as RegisterActionState;
     }
-    await createUser(validatedData.email, validatedData.password);
+    const requestHeaders = await headers();
+    const unpriceCustomerId = await provisionUnpriceCustomer({
+      userId: user.id,
+      email: validatedData.email,
+      applicationBaseUrl: getApplicationBaseUrl(requestHeaders),
+    });
+
+    await setUserUnpriceCustomerId({
+      id: user.id,
+      unpriceCustomerId,
+    });
     await signIn('credentials', {
       email: validatedData.email,
       password: validatedData.password,
@@ -77,6 +108,11 @@ export const register = async (
   } catch (error) {
     if (error instanceof z.ZodError) {
       return { status: 'invalid_data' };
+    }
+
+    if (error instanceof UnpriceRuntimeError) {
+      logUnpriceError('Failed to provision registered customer', error);
+      return { status: 'provisioning_failed' };
     }
 
     return { status: 'failed' };

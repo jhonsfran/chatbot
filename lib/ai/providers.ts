@@ -1,16 +1,15 @@
-import {
-  customProvider,
-  extractReasoningMiddleware,
-  wrapLanguageModel,
-} from 'ai';
-import { xai } from '@ai-sdk/xai';
+import { customProvider } from 'ai';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { isTestEnvironment } from '../constants';
+import { createOpenRouterImageModel } from './openrouter-image-model';
 import {
   artifactModel,
   chatModel,
   reasoningModel,
   titleModel,
 } from './models.test';
+
+const openrouter = createOpenRouter({ compatibility: 'strict' });
 
 export const myProvider = isTestEnvironment
   ? customProvider({
@@ -23,15 +22,16 @@ export const myProvider = isTestEnvironment
     })
   : customProvider({
       languageModels: {
-        'chat-model': xai('grok-2-vision-1212'),
-        'chat-model-reasoning': wrapLanguageModel({
-          model: xai('grok-3-mini-beta'),
-          middleware: extractReasoningMiddleware({ tagName: 'think' }),
+        'chat-model': openrouter('x-ai/grok-4.3'),
+        'chat-model-reasoning': openrouter('x-ai/grok-4.3', {
+          reasoning: { effort: 'low' },
         }),
-        'title-model': xai('grok-2-1212'),
-        'artifact-model': xai('grok-2-1212'),
+        'title-model': openrouter('x-ai/grok-4.3'),
+        'artifact-model': openrouter('x-ai/grok-4.3'),
       },
       imageModels: {
-        'small-model': xai.image('grok-2-image'),
+        'small-model': createOpenRouterImageModel(
+          'x-ai/grok-imagine-image-quality',
+        ),
       },
     });

@@ -1,33 +1,34 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useWindowSize } from 'usehooks-ts';
 
 import { ModelSelector } from '@/components/model-selector';
 import { SidebarToggle } from '@/components/sidebar-toggle';
 import { Button } from '@/components/ui/button';
 import { PlusIcon, VercelIcon } from './icons';
+import { NewChatButton } from './new-chat-button';
 import { useSidebar } from './ui/sidebar';
 import { memo } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { type VisibilityType, VisibilitySelector } from './visibility-selector';
-import type { Session } from 'next-auth';
+import type { PlanAccessStatus } from '@/lib/ai/models';
 
 function PureChatHeader({
   chatId,
   selectedModelId,
   selectedVisibilityType,
   isReadonly,
-  session,
+  availableChatModelIds,
+  planAccessStatus,
 }: {
   chatId: string;
   selectedModelId: string;
   selectedVisibilityType: VisibilityType;
   isReadonly: boolean;
-  session: Session;
+  availableChatModelIds: string[];
+  planAccessStatus: PlanAccessStatus;
 }) {
-  const router = useRouter();
   const { open } = useSidebar();
 
   const { width: windowWidth } = useWindowSize();
@@ -39,17 +40,14 @@ function PureChatHeader({
       {(!open || windowWidth < 768) && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button
+            <NewChatButton
+              aria-label="New Chat"
               variant="outline"
               className="order-2 md:order-1 md:px-2 px-2 md:h-fit ml-auto md:ml-0"
-              onClick={() => {
-                router.push('/');
-                router.refresh();
-              }}
             >
               <PlusIcon />
               <span className="md:sr-only">New Chat</span>
-            </Button>
+            </NewChatButton>
           </TooltipTrigger>
           <TooltipContent>New Chat</TooltipContent>
         </Tooltip>
@@ -57,8 +55,9 @@ function PureChatHeader({
 
       {!isReadonly && (
         <ModelSelector
-          session={session}
           selectedModelId={selectedModelId}
+          availableChatModelIds={availableChatModelIds}
+          planAccessStatus={planAccessStatus}
           className="order-1 md:order-2"
         />
       )}
@@ -88,5 +87,10 @@ function PureChatHeader({
 }
 
 export const ChatHeader = memo(PureChatHeader, (prevProps, nextProps) => {
-  return prevProps.selectedModelId === nextProps.selectedModelId;
+  return (
+    prevProps.selectedModelId === nextProps.selectedModelId &&
+    prevProps.planAccessStatus === nextProps.planAccessStatus &&
+    prevProps.availableChatModelIds.join() ===
+      nextProps.availableChatModelIds.join()
+  );
 });

@@ -24,7 +24,7 @@
 - [AI SDK](https://sdk.vercel.ai/docs)
   - Unified API for generating text, structured objects, and tool calls with LLMs
   - Hooks for building dynamic chat and generative user interfaces
-  - Supports xAI (default), OpenAI, Fireworks, and other model providers
+  - Supports OpenRouter (default), OpenAI, Fireworks, and other model providers
 - [shadcn/ui](https://ui.shadcn.com)
   - Styling with [Tailwind CSS](https://tailwindcss.com)
   - Component primitives from [Radix UI](https://radix-ui.com) for accessibility and flexibility
@@ -36,7 +36,35 @@
 
 ## Model Providers
 
-This template ships with [xAI](https://x.ai) `grok-2-1212` as the default chat model. However, with the [AI SDK](https://sdk.vercel.ai/docs), you can switch LLM providers to [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://sdk.vercel.ai/providers/ai-sdk-providers) with just a few lines of code.
+This template ships with [OpenRouter](https://openrouter.ai) routing to xAI's `grok-4.3` as the default chat model. However, with the [AI SDK](https://sdk.vercel.ai/docs), you can switch LLM providers to [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://sdk.vercel.ai/providers/ai-sdk-providers) with just a few lines of code.
+
+## Monetization with Unprice
+
+The demo keeps both Unprice credentials server-side and gives them separate jobs:
+
+- `UNPRICE_CONFIG_TOKEN` lets an agent inspect the current monetization model and apply draft changes. It cannot publish them.
+- `UNPRICE_TOKEN` provisions registered users, checks model and token access before generation, and consumes actual token usage against the chat's reserved budget when generation finishes.
+
+Inspect the current project and the typed proposal without changing anything:
+
+```bash
+pnpm unprice:inspect
+```
+
+After reviewing the printed proposal, create or reuse the drafts:
+
+```bash
+pnpm unprice:apply
+```
+
+The command prints a `reviewUrl` and stops. A human must review and publish the draft in Unprice. The published proposal uses USD:
+
+- Free: 10,000 tokens/day, capped at $0.10 for each chat per UTC day. New customers receive a $3.30 monthly credit line so those reservations can run (the maximum actual token spend remains $3.10/month).
+- Pro: $10/month, reasoning access, 1,000,000 included tokens/month, then $0.00001/token; new Pro subscriptions have a $10 monthly spend cap.
+
+Registration explicitly provisions the published Free plan unless `UNPRICE_SIGNUP_PLAN_SLUG` is set. Set it to `pro` when creating a fresh Pro demo customer.
+
+Run `pnpm db:migrate` after pulling this integration. Registered users store their Unprice customer ID in the `User` row; guest sessions remain local and are not provisioned.
 
 ## Deploy Your Own
 

@@ -14,6 +14,7 @@ import {
   getMessageCountByUserId,
   getMessagesByChatId,
   getStreamIdsByChatId,
+  getUserById,
   saveChat,
   saveMessages,
 } from '@/lib/db/queries';
@@ -36,6 +37,15 @@ import { after } from 'next/server';
 import type { Chat } from '@/lib/db/schema';
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
+import {
+  checkReasoningModelAccess,
+  checkTotalTokenAccess,
+  consumeChatBudgetTokens,
+  endChatBudgetRun,
+  logUnpriceError,
+  startChatBudgetRun,
+  UnpriceRuntimeError,
+} from '@/lib/unprice/runtime';
 
 export const maxDuration = 60;
 
@@ -82,17 +92,69 @@ export async function POST(request: Request) {
     }
 
     const userType: UserType = session.user.type;
+    let unpriceCustomerId: string | undefined;
+    let unpriceRunId: string | undefined;
+    const chat = await getChatById({ id });
 
-    const messageCount = await getMessageCountByUserId({
-      id: session.user.id,
-      differenceInHours: 24,
-    });
-
-    if (messageCount > entitlementsByUserType[userType].maxMessagesPerDay) {
-      return new ChatSDKError('rate_limit:chat').toResponse();
+    if (chat && chat.userId !== session.user.id) {
+      return new ChatSDKError('forbidden:chat').toResponse();
     }
 
-    const chat = await getChatById({ id });
+    if (userType === 'regular') {
+      const registeredUser = await getUserById(session.user.id);
+
+      if (!registeredUser?.unpriceCustomerId) {
+        return new ChatSDKError('service_unavailable:billing').toResponse();
+      }
+
+      unpriceCustomerId = registeredUser.unpriceCustomerId;
+
+      const tokenAccess = await checkTotalTokenAccess(unpriceCustomerId);
+
+      if (!tokenAccess.allowed) {
+        return new ChatSDKError(
+          'rate_limit:billing',
+          tokenAccess.rejectionReason,
+        ).toResponse();
+      }
+
+      if (selectedChatModel === 'chat-model-reasoning') {
+        const modelAccess = await checkReasoningModelAccess(unpriceCustomerId);
+
+        if (!modelAccess.allowed) {
+          return new ChatSDKError(
+            'forbidden:billing',
+            modelAccess.rejectionReason,
+          ).toResponse();
+        }
+      }
+
+      const budgetRun = await startChatBudgetRun({
+        customerId: unpriceCustomerId,
+        chatId: id,
+      });
+
+      if (
+        budgetRun.status !== 'running' ||
+        budgetRun.remainingAmountMinor <= 0
+      ) {
+        return new ChatSDKError(
+          'rate_limit:billing',
+          'BUDGET_EXCEEDED',
+        ).toResponse();
+      }
+
+      unpriceRunId = budgetRun.runId;
+    } else {
+      const messageCount = await getMessageCountByUserId({
+        id: session.user.id,
+        differenceInHours: 24,
+      });
+
+      if (messageCount > entitlementsByUserType[userType].maxMessagesPerDay) {
+        return new ChatSDKError('rate_limit:chat').toResponse();
+      }
+    }
 
     if (!chat) {
       const title = await generateTitleFromUserMessage({
@@ -105,10 +167,6 @@ export async function POST(request: Request) {
         title,
         visibility: selectedVisibilityType,
       });
-    } else {
-      if (chat.userId !== session.user.id) {
-        return new ChatSDKError('forbidden:chat').toResponse();
-      }
     }
 
     const previousMessages = await getMessagesByChatId({ id });
@@ -171,7 +229,7 @@ export async function POST(request: Request) {
               dataStream,
             }),
           },
-          onFinish: async ({ response }) => {
+          onFinish: async ({ response, usage }) => {
             if (session.user?.id) {
               try {
                 const assistantId = getTrailingMessageId({
@@ -206,6 +264,40 @@ export async function POST(request: Request) {
                 console.error('Failed to save chat');
               }
             }
+
+            if (unpriceCustomerId && unpriceRunId) {
+              try {
+                const consumption = await consumeChatBudgetTokens({
+                  runId: unpriceRunId,
+                  customerId: unpriceCustomerId,
+                  chatId: id,
+                  messageId: message.id,
+                  inputTokens: usage.promptTokens,
+                  outputTokens: usage.completionTokens,
+                });
+
+                if (
+                  !consumption.accepted &&
+                  consumption.run.status === 'running'
+                ) {
+                  await endChatBudgetRun({
+                    runId: unpriceRunId,
+                    status: 'failed',
+                  });
+                } else if (
+                  consumption.accepted &&
+                  consumption.run.status === 'running' &&
+                  consumption.run.remainingAmountMinor <= 0
+                ) {
+                  await endChatBudgetRun({
+                    runId: unpriceRunId,
+                    status: 'completed',
+                  });
+                }
+              } catch (error) {
+                logUnpriceError('Failed to consume chat budget', error);
+              }
+            }
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
@@ -237,6 +329,18 @@ export async function POST(request: Request) {
     if (error instanceof ChatSDKError) {
       return error.toResponse();
     }
+
+    if (error instanceof UnpriceRuntimeError) {
+      if (error.code === 'FORBIDDEN') {
+        return new ChatSDKError('forbidden:account', error.code).toResponse();
+      }
+
+      logUnpriceError('Failed to enforce chat monetization', error);
+      return new ChatSDKError('service_unavailable:billing').toResponse();
+    }
+
+    console.error('Failed to process chat request', error);
+    return new ChatSDKError('service_unavailable:chat').toResponse();
   }
 }
 

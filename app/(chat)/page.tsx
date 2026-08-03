@@ -6,6 +6,7 @@ import { generateUUID } from '@/lib/utils';
 import { DataStreamHandler } from '@/components/data-stream-handler';
 import { auth } from '../(auth)/auth';
 import { redirect } from 'next/navigation';
+import { getModelAvailability } from '@/lib/ai/model-access';
 
 export default async function Page() {
   const session = await auth();
@@ -18,24 +19,15 @@ export default async function Page() {
 
   const cookieStore = await cookies();
   const modelIdFromCookie = cookieStore.get('chat-model');
-
-  if (!modelIdFromCookie) {
-    return (
-      <>
-        <Chat
-          key={id}
-          id={id}
-          initialMessages={[]}
-          initialChatModel={DEFAULT_CHAT_MODEL}
-          initialVisibilityType="private"
-          isReadonly={false}
-          session={session}
-          autoResume={false}
-        />
-        <DataStreamHandler id={id} />
-      </>
-    );
-  }
+  const modelAvailability = await getModelAvailability({
+    userId: session.user.id,
+    userType: session.user.type,
+  });
+  const initialChatModel = modelAvailability.availableChatModelIds.includes(
+    modelIdFromCookie?.value ?? '',
+  )
+    ? (modelIdFromCookie?.value ?? DEFAULT_CHAT_MODEL)
+    : DEFAULT_CHAT_MODEL;
 
   return (
     <>
@@ -43,11 +35,12 @@ export default async function Page() {
         key={id}
         id={id}
         initialMessages={[]}
-        initialChatModel={modelIdFromCookie.value}
+        initialChatModel={initialChatModel}
         initialVisibilityType="private"
         isReadonly={false}
-        session={session}
         autoResume={false}
+        availableChatModelIds={modelAvailability.availableChatModelIds}
+        planAccessStatus={modelAvailability.planAccessStatus}
       />
       <DataStreamHandler id={id} />
     </>

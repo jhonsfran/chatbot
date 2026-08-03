@@ -41,23 +41,16 @@ export const {
     Credentials({
       credentials: {},
       async authorize({ email, password }: any) {
-        const users = await getUser(email);
+        const user = await getUser(email);
 
-        if (users.length === 0) {
-          await compare(password, DUMMY_PASSWORD);
-          return null;
-        }
-
-        const [user] = users;
-
-        if (!user.password) {
+        if (!user?.password) {
           await compare(password, DUMMY_PASSWORD);
           return null;
         }
 
         const passwordsMatch = await compare(password, user.password);
 
-        if (!passwordsMatch) return null;
+        if (!passwordsMatch || !user.unpriceCustomerId) return null;
 
         return { ...user, type: 'regular' };
       },

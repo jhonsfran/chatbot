@@ -14,23 +14,21 @@ import { chatModels } from '@/lib/ai/models';
 import { cn } from '@/lib/utils';
 
 import { CheckCircleFillIcon, ChevronDownIcon } from './icons';
-import { entitlementsByUserType } from '@/lib/ai/entitlements';
-import type { Session } from 'next-auth';
+import type { PlanAccessStatus } from '@/lib/ai/models';
 
 export function ModelSelector({
-  session,
   selectedModelId,
+  availableChatModelIds,
+  planAccessStatus,
   className,
 }: {
-  session: Session;
   selectedModelId: string;
+  availableChatModelIds: string[];
+  planAccessStatus: PlanAccessStatus;
 } & React.ComponentProps<typeof Button>) {
   const [open, setOpen] = useState(false);
   const [optimisticModelId, setOptimisticModelId] =
     useOptimistic(selectedModelId);
-
-  const userType = session.user.type;
-  const { availableChatModelIds } = entitlementsByUserType[userType];
 
   const availableChatModels = chatModels.filter((chatModel) =>
     availableChatModelIds.includes(chatModel.id),
@@ -63,6 +61,11 @@ export function ModelSelector({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-[300px]">
+        {planAccessStatus === 'unavailable' && (
+          <DropdownMenuItem disabled>
+            Plan access is temporarily unavailable
+          </DropdownMenuItem>
+        )}
         {availableChatModels.map((chatModel) => {
           const { id } = chatModel;
 

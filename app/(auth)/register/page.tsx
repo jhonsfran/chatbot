@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 
 import { AuthForm } from '@/components/auth-form';
 import { SubmitButton } from '@/components/submit-button';
@@ -16,6 +16,7 @@ export default function Page() {
 
   const [email, setEmail] = useState('');
   const [isSuccessful, setIsSuccessful] = useState(false);
+  const hasCompletedAuthentication = useRef(false);
 
   const [state, formAction] = useActionState<RegisterActionState, FormData>(
     register,
@@ -31,19 +32,30 @@ export default function Page() {
       toast({ type: 'error', description: 'Account already exists!' });
     } else if (state.status === 'failed') {
       toast({ type: 'error', description: 'Failed to create account!' });
+    } else if (state.status === 'provisioning_failed') {
+      toast({
+        type: 'error',
+        description:
+          'We could not set up your plan. Your account is not active; please try again.',
+      });
     } else if (state.status === 'invalid_data') {
       toast({
         type: 'error',
         description: 'Failed validating your submission!',
       });
-    } else if (state.status === 'success') {
+    } else if (
+      state.status === 'success' &&
+      !hasCompletedAuthentication.current
+    ) {
+      hasCompletedAuthentication.current = true;
       toast({ type: 'success', description: 'Account created successfully!' });
 
       setIsSuccessful(true);
-      updateSession();
-      router.refresh();
+      void updateSession().finally(() => {
+        router.replace('/');
+      });
     }
-  }, [state]);
+  }, [state.status, router, updateSession]);
 
   const handleSubmit = (formData: FormData) => {
     setEmail(formData.get('email') as string);

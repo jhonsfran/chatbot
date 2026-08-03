@@ -1,5 +1,7 @@
 export const DEFAULT_CHAT_MODEL: string = 'chat-model';
 
+export type PlanAccessStatus = 'ready' | 'unavailable';
+
 export interface ChatModel {
   id: string;
   name: string;

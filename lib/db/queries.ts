@@ -42,9 +42,13 @@ import { ChatSDKError } from '../errors';
 const client = postgres(process.env.POSTGRES_URL!);
 const db = drizzle(client);
 
-export async function getUser(email: string): Promise<Array<User>> {
+export async function getUser(email: string): Promise<User | undefined> {
   try {
-    return await db.select().from(user).where(eq(user.email, email));
+    const [foundUser] = await db
+      .select()
+      .from(user)
+      .where(eq(user.email, email));
+    return foundUser;
   } catch (error) {
     throw new ChatSDKError(
       'bad_request:database',
@@ -53,13 +57,79 @@ export async function getUser(email: string): Promise<Array<User>> {
   }
 }
 
-export async function createUser(email: string, password: string) {
+export async function getUserById(id: string): Promise<User | undefined> {
+  try {
+    const [foundUser] = await db.select().from(user).where(eq(user.id, id));
+    return foundUser;
+  } catch (error) {
+    throw new ChatSDKError('bad_request:database', 'Failed to get user by id');
+  }
+}
+
+export async function findOrCreatePendingUser({
+  id,
+  email,
+  password,
+}: {
+  id: string;
+  email: string;
+  password: string;
+}): Promise<User> {
+  const existingUser = await getUser(email);
+
+  if (existingUser) {
+    return existingUser;
+  }
+
   const hashedPassword = generateHashedPassword(password);
 
   try {
-    return await db.insert(user).values({ email, password: hashedPassword });
+    const [createdUser] = await db
+      .insert(user)
+      .values({ id, email, password: hashedPassword })
+      .onConflictDoNothing({ target: user.email })
+      .returning();
+
+    if (createdUser) {
+      return createdUser;
+    }
+
+    const concurrentUser = await getUser(email);
+
+    if (concurrentUser) {
+      return concurrentUser;
+    }
+
+    throw new Error('Failed to create or retrieve user');
   } catch (error) {
     throw new ChatSDKError('bad_request:database', 'Failed to create user');
+  }
+}
+
+export async function setUserUnpriceCustomerId({
+  id,
+  unpriceCustomerId,
+}: {
+  id: string;
+  unpriceCustomerId: string;
+}): Promise<User> {
+  try {
+    const [updatedUser] = await db
+      .update(user)
+      .set({ unpriceCustomerId })
+      .where(eq(user.id, id))
+      .returning();
+
+    if (!updatedUser) {
+      throw new Error('User not found');
+    }
+
+    return updatedUser;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to attach Unprice customer to user',
+    );
   }
 }
 

@@ -1,11 +1,13 @@
 'use client';
 
 import type { User } from 'next-auth';
-import { useRouter } from 'next/navigation';
 
 import { PlusIcon } from '@/components/icons';
+import { NewChatButton } from '@/components/new-chat-button';
 import { SidebarHistory } from '@/components/sidebar-history';
 import { SidebarUserNav } from '@/components/sidebar-user-nav';
+import { useUpgradePrompt } from '@/components/upgrade-prompt';
+import { UsageSummary } from '@/components/usage-summary';
 import { Button } from '@/components/ui/button';
 import {
   Sidebar,
@@ -13,14 +15,21 @@ import {
   SidebarFooter,
   SidebarHeader,
   SidebarMenu,
+  SidebarGroup,
+  SidebarGroupContent,
   useSidebar,
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 export function AppSidebar({ user }: { user: User | undefined }) {
-  const router = useRouter();
   const { setOpenMobile } = useSidebar();
+  const {
+    dismissUpgradeReminder,
+    isUpgradeCardVisible,
+    isUpgrading,
+    showUpgradePrompt,
+  } = useUpgradePrompt();
 
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
@@ -40,18 +49,16 @@ export function AppSidebar({ user }: { user: User | undefined }) {
             </Link>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
+                <NewChatButton
+                  aria-label="New Chat"
                   variant="ghost"
-                  type="button"
                   className="p-2 h-fit"
-                  onClick={() => {
+                  onChatAvailable={() => {
                     setOpenMobile(false);
-                    router.push('/');
-                    router.refresh();
                   }}
                 >
                   <PlusIcon />
-                </Button>
+                </NewChatButton>
               </TooltipTrigger>
               <TooltipContent align="end">New Chat</TooltipContent>
             </Tooltip>
@@ -59,6 +66,51 @@ export function AppSidebar({ user }: { user: User | undefined }) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
+        {isUpgradeCardVisible && user && (
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <div
+                className="overflow-hidden rounded-xl border border-sidebar-foreground/15 bg-sidebar-accent p-3 shadow-sm"
+                data-testid="upgrade-card"
+              >
+                <div className="flex items-center justify-between gap-2 text-[10px] text-sidebar-foreground/55 uppercase tracking-[0.15em]">
+                  Usage limit reached
+                  <span className="rounded border border-sidebar-foreground/15 px-1.5 py-0.5 text-[9px] text-sidebar-foreground/70">
+                    Pro
+                  </span>
+                </div>
+                <p className="mt-3 font-semibold text-sm tracking-tight">
+                  More room to think.
+                </p>
+                <p className="mt-1 text-sidebar-foreground/65 text-xs leading-5">
+                  Reasoning access and $10 in monthly token usage.
+                </p>
+                <Button
+                  className="mt-3 w-full"
+                  data-testid="upgrade-card-button"
+                  disabled={isUpgrading}
+                  onClick={showUpgradePrompt}
+                  size="sm"
+                  type="button"
+                >
+                  View Pro — $10/month
+                </Button>
+                <Button
+                  className="mt-1.5 w-full text-sidebar-foreground/65 hover:text-sidebar-foreground"
+                  data-testid="dismiss-upgrade-button"
+                  disabled={isUpgrading}
+                  onClick={dismissUpgradeReminder}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+        {user && <UsageSummary />}
         <SidebarHistory user={user} />
       </SidebarContent>
       <SidebarFooter>{user && <SidebarUserNav user={user} />}</SidebarFooter>

@@ -15,7 +15,8 @@ test.describe
         throw new Error('Failed to load page');
       }
 
-      let request = response.request();
+      let request: ReturnType<typeof response.request> | null =
+        response.request();
 
       const chain = [];
 
@@ -57,7 +58,8 @@ test.describe
         throw new Error('Failed to load page');
       }
 
-      let request = response.request();
+      let request: ReturnType<typeof response.request> | null =
+        response.request();
 
       const chain = [];
 
@@ -102,9 +104,34 @@ test.describe
       authPage = new AuthPage(page);
     });
 
-    test('Register new account', async () => {
-      await authPage.register(testUser.email, testUser.password);
+    test('Register new account', async ({ page }) => {
+      const postSubmitRequests: string[] = [];
+      let captureRequests = false;
+
+      page.on('request', (request) => {
+        if (!captureRequests) {
+          return;
+        }
+
+        const pathname = new URL(request.url()).pathname;
+
+        if (pathname === '/' || pathname === '/api/auth/session') {
+          postSubmitRequests.push(pathname);
+        }
+      });
+
+      await authPage.gotoRegister();
+      await page.getByPlaceholder('user@acme.com').fill(testUser.email);
+      await page.getByLabel('Password').fill(testUser.password);
+
+      captureRequests = true;
+      await page.getByRole('button', { name: 'Sign Up' }).click();
+
       await authPage.expectToastToContain('Account created successfully!');
+      await page.waitForURL('/');
+      await page.waitForTimeout(250);
+
+      expect(postSubmitRequests).toEqual(['/api/auth/session', '/']);
     });
 
     test('Register new account with existing email', async () => {

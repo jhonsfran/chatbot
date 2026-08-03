@@ -8,6 +8,7 @@ import { DataStreamHandler } from '@/components/data-stream-handler';
 import { DEFAULT_CHAT_MODEL } from '@/lib/ai/models';
 import type { DBMessage } from '@/lib/db/schema';
 import type { Attachment, UIMessage } from 'ai';
+import { getModelAvailability } from '@/lib/ai/model-access';
 
 export default async function Page(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -53,34 +54,27 @@ export default async function Page(props: { params: Promise<{ id: string }> }) {
 
   const cookieStore = await cookies();
   const chatModelFromCookie = cookieStore.get('chat-model');
-
-  if (!chatModelFromCookie) {
-    return (
-      <>
-        <Chat
-          id={chat.id}
-          initialMessages={convertToUIMessages(messagesFromDb)}
-          initialChatModel={DEFAULT_CHAT_MODEL}
-          initialVisibilityType={chat.visibility}
-          isReadonly={session?.user?.id !== chat.userId}
-          session={session}
-          autoResume={true}
-        />
-        <DataStreamHandler id={id} />
-      </>
-    );
-  }
+  const modelAvailability = await getModelAvailability({
+    userId: session.user.id,
+    userType: session.user.type,
+  });
+  const initialChatModel = modelAvailability.availableChatModelIds.includes(
+    chatModelFromCookie?.value ?? '',
+  )
+    ? (chatModelFromCookie?.value ?? DEFAULT_CHAT_MODEL)
+    : DEFAULT_CHAT_MODEL;
 
   return (
     <>
       <Chat
         id={chat.id}
         initialMessages={convertToUIMessages(messagesFromDb)}
-        initialChatModel={chatModelFromCookie.value}
+        initialChatModel={initialChatModel}
         initialVisibilityType={chat.visibility}
         isReadonly={session?.user?.id !== chat.userId}
-        session={session}
         autoResume={true}
+        availableChatModelIds={modelAvailability.availableChatModelIds}
+        planAccessStatus={modelAvailability.planAccessStatus}
       />
       <DataStreamHandler id={id} />
     </>
