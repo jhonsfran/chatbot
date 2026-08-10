@@ -2,7 +2,7 @@
 
 import type { Attachment, UIMessage } from 'ai';
 import { useChat } from '@ai-sdk/react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { ChatHeader } from '@/components/chat-header';
 import type { Vote } from '@/lib/db/schema';
@@ -21,6 +21,7 @@ import { useAutoResume } from '@/hooks/use-auto-resume';
 import { ChatSDKError } from '@/lib/errors';
 import type { PlanAccessStatus } from '@/lib/ai/models';
 import { useUpgradePrompt } from './upgrade-prompt';
+import { LoginGateDialog } from './login-gate-dialog';
 
 export function Chat({
   id,
@@ -28,6 +29,7 @@ export function Chat({
   initialChatModel,
   initialVisibilityType,
   isReadonly,
+  isAuthenticated,
   autoResume,
   availableChatModelIds,
   planAccessStatus,
@@ -37,12 +39,17 @@ export function Chat({
   initialChatModel: string;
   initialVisibilityType: VisibilityType;
   isReadonly: boolean;
+  isAuthenticated: boolean;
   autoResume: boolean;
   availableChatModelIds: string[];
   planAccessStatus: PlanAccessStatus;
 }) {
   const { mutate } = useSWRConfig();
   const { showUpgradePrompt } = useUpgradePrompt();
+  const [isLoginGateOpen, setIsLoginGateOpen] = useState(false);
+  const requestAuthentication = useCallback(() => {
+    setIsLoginGateOpen(true);
+  }, []);
 
   const { visibilityType } = useChatVisibility({
     chatId: id,
@@ -99,15 +106,45 @@ export function Chat({
 
   useEffect(() => {
     if (query && !hasAppendedQuery) {
-      append({
-        role: 'user',
-        content: query,
-      });
+      if (isAuthenticated) {
+        append({
+          role: 'user',
+          content: query,
+        });
+      } else {
+        setInput(query);
+        requestAuthentication();
+      }
 
       setHasAppendedQuery(true);
-      window.history.replaceState({}, '', `/chat/${id}`);
+
+      if (isAuthenticated) {
+        window.history.replaceState({}, '', `/chat/${id}`);
+      }
     }
-  }, [query, append, hasAppendedQuery, id]);
+  }, [
+    query,
+    append,
+    hasAppendedQuery,
+    id,
+    isAuthenticated,
+    requestAuthentication,
+    setInput,
+  ]);
+
+  const handleSuggestedAction = useCallback(
+    (action: string) => {
+      if (!isAuthenticated) {
+        setInput(action);
+        requestAuthentication();
+        return;
+      }
+
+      window.history.replaceState({}, '', `/chat/${id}`);
+      append({ role: 'user', content: action });
+    },
+    [append, id, isAuthenticated, requestAuthentication, setInput],
+  );
 
   const { data: votes } = useSWR<Array<Vote>>(
     messages.length >= 2 ? `/api/vote?chatId=${id}` : null,
@@ -157,12 +194,14 @@ export function Chat({
               handleSubmit={handleSubmit}
               status={status}
               stop={stop}
+              isAuthenticated={isAuthenticated}
+              onAuthenticationRequired={requestAuthentication}
               attachments={attachments}
               setAttachments={setAttachments}
               messages={messages}
               setMessages={setMessages}
-              append={append}
               selectedVisibilityType={visibilityType}
+              onSuggestedAction={handleSuggestedAction}
             />
           )}
         </form>
@@ -183,7 +222,15 @@ export function Chat({
         reload={reload}
         votes={votes}
         isReadonly={isReadonly}
+        isAuthenticated={isAuthenticated}
+        onAuthenticationRequired={requestAuthentication}
+        onSuggestedAction={handleSuggestedAction}
         selectedVisibilityType={visibilityType}
+      />
+
+      <LoginGateDialog
+        open={isLoginGateOpen}
+        onOpenChange={setIsLoginGateOpen}
       />
     </>
   );

@@ -1,14 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
-import { guestRegex, isDevelopmentEnvironment } from './lib/constants';
+import { isDevelopmentEnvironment } from './lib/constants';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  /*
-   * Playwright starts the dev server and requires a 200 status to
-   * begin the tests, so this ensures that the tests can start
-   */
   if (pathname.startsWith('/ping')) {
     return new Response('pong', { status: 200 });
   }
@@ -23,18 +19,29 @@ export async function middleware(request: NextRequest) {
     secureCookie: !isDevelopmentEnvironment,
   });
 
-  if (!token) {
-    const redirectUrl = encodeURIComponent(request.url);
+  const isRegularUser = token?.type === 'regular';
 
-    return NextResponse.redirect(
-      new URL(`/api/auth/guest?redirectUrl=${redirectUrl}`, request.url),
-    );
+  if (['/login', '/register'].includes(pathname)) {
+    return isRegularUser
+      ? NextResponse.redirect(new URL('/', request.url))
+      : NextResponse.next();
   }
 
-  const isGuest = guestRegex.test(token?.email ?? '');
+  if (pathname === '/') {
+    return NextResponse.next();
+  }
 
-  if (token && !isGuest && ['/login', '/register'].includes(pathname)) {
-    return NextResponse.redirect(new URL('/', request.url));
+  if (pathname.startsWith('/api/')) {
+    return isRegularUser
+      ? NextResponse.next()
+      : NextResponse.json(
+          { code: 'unauthorized:auth', message: 'Authentication required.' },
+          { status: 401 },
+        );
+  }
+
+  if (!isRegularUser) {
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   return NextResponse.next();

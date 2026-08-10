@@ -1,12 +1,10 @@
 import 'server-only';
 
-import type { UserType } from '@/app/(auth)/auth';
 import { getUserById } from '@/lib/db/queries';
 import {
   checkReasoningModelAccess,
   logUnpriceError,
 } from '@/lib/unprice/runtime';
-import { entitlementsByUserType } from './entitlements';
 import type { PlanAccessStatus } from './models';
 
 export interface ModelAvailability {
@@ -16,18 +14,9 @@ export interface ModelAvailability {
 
 export async function getModelAvailability({
   userId,
-  userType,
 }: {
   userId: string;
-  userType: UserType;
 }): Promise<ModelAvailability> {
-  if (userType === 'guest') {
-    return {
-      availableChatModelIds: entitlementsByUserType.guest.availableChatModelIds,
-      planAccessStatus: 'ready',
-    };
-  }
-
   const registeredUser = await getUserById(userId);
 
   if (!registeredUser?.unpriceCustomerId) {

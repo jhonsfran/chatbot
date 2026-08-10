@@ -1,7 +1,6 @@
 import 'server-only';
 
 import { Unprice, type ApiError, type ApiResult } from '@unprice/api';
-import { isTestEnvironment } from '@/lib/constants';
 import { unpriceCatalog } from './catalog';
 
 type HeaderReader = Pick<Headers, 'get'>;
@@ -127,19 +126,12 @@ function unwrap<TResult>(
   return response.result;
 }
 
-async function getTestFetch() {
-  const { testFetch } = await import('./test-fetch');
-  return testFetch;
-}
-
 async function getRuntimeClient(): Promise<Unprice> {
   if (runtimeClient) {
     return runtimeClient;
   }
 
-  const token = isTestEnvironment
-    ? 'unprice_test_runtime'
-    : process.env.UNPRICE_TOKEN;
+  const token = process.env.UNPRICE_TOKEN;
 
   if (!token) {
     throw new UnpriceRuntimeError(
@@ -150,23 +142,18 @@ async function getRuntimeClient(): Promise<Unprice> {
     );
   }
 
-  const testFetch = isTestEnvironment ? await getTestFetch() : undefined;
-
   runtimeClient = new Unprice({
     token,
     ...(process.env.UNPRICE_API_URL
       ? { baseUrl: process.env.UNPRICE_API_URL }
       : {}),
-    ...(testFetch ? { fetch: testFetch } : {}),
   });
 
   return runtimeClient;
 }
 
 function getRuntimeToken(): string {
-  const token = isTestEnvironment
-    ? 'unprice_test_runtime'
-    : process.env.UNPRICE_TOKEN;
+  const token = process.env.UNPRICE_TOKEN;
 
   if (!token) {
     throw new UnpriceRuntimeError(
@@ -196,8 +183,7 @@ async function postUnpriceRuntimeOperation<TResult>(
       body: JSON.stringify(body),
     },
   );
-  const runtimeFetch = isTestEnvironment ? await getTestFetch() : fetch;
-  const response = await runtimeFetch(request);
+  const response = await fetch(request);
   const payload = (await response.json()) as
     | TResult
     | {

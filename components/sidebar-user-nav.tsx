@@ -21,14 +21,13 @@ import {
 import { useRouter } from 'next/navigation';
 import { toast } from './toast';
 import { LoaderIcon } from './icons';
-import { guestRegex } from '@/lib/constants';
 
 export function SidebarUserNav({ user }: { user: User }) {
   const router = useRouter();
   const { data, status } = useSession();
   const { setTheme, resolvedTheme } = useTheme();
 
-  const isGuest = guestRegex.test(data?.user?.email ?? '');
+  const isAuthenticated = data?.user?.type === 'regular';
 
   return (
     <SidebarMenu>
@@ -60,7 +59,7 @@ export function SidebarUserNav({ user }: { user: User }) {
                   className="rounded-full"
                 />
                 <span data-testid="user-email" className="truncate">
-                  {isGuest ? 'Guest' : user?.email}
+                  {isAuthenticated ? user?.email : 'Sign in'}
                 </span>
                 <ChevronUp className="ml-auto" />
               </SidebarMenuButton>
@@ -74,7 +73,9 @@ export function SidebarUserNav({ user }: { user: User }) {
             <DropdownMenuItem
               data-testid="user-nav-item-theme"
               className="cursor-pointer"
-              onSelect={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+              onSelect={() =>
+                setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
+              }
             >
               {`Toggle ${resolvedTheme === 'light' ? 'dark' : 'light'} mode`}
             </DropdownMenuItem>
@@ -94,7 +95,7 @@ export function SidebarUserNav({ user }: { user: User }) {
                     return;
                   }
 
-                  if (isGuest) {
+                  if (!isAuthenticated) {
                     router.push('/login');
                   } else {
                     signOut({
@@ -103,7 +104,7 @@ export function SidebarUserNav({ user }: { user: User }) {
                   }
                 }}
               >
-                {isGuest ? 'Login to your account' : 'Sign out'}
+                {isAuthenticated ? 'Sign out' : 'Login to your account'}
               </button>
             </DropdownMenuItem>
           </DropdownMenuContent>

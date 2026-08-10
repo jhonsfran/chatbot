@@ -5,13 +5,12 @@ import {
   smoothStream,
   streamText,
 } from 'ai';
-import { auth, type UserType } from '@/app/(auth)/auth';
+import { auth, isRegularUser } from '@/app/(auth)/auth';
 import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
 import {
   createStreamId,
   deleteChatById,
   getChatById,
-  getMessageCountByUserId,
   getMessagesByChatId,
   getStreamIdsByChatId,
   getUserById,
@@ -26,7 +25,6 @@ import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
 import { getWeather } from '@/lib/ai/tools/get-weather';
 import { isProductionEnvironment } from '@/lib/constants';
 import { myProvider } from '@/lib/ai/providers';
-import { entitlementsByUserType } from '@/lib/ai/entitlements';
 import { postRequestBodySchema, type PostRequestBody } from './schema';
 import { geolocation } from '@vercel/functions';
 import {
@@ -87,74 +85,57 @@ export async function POST(request: Request) {
 
     const session = await auth();
 
-    if (!session?.user) {
+    if (!isRegularUser(session)) {
       return new ChatSDKError('unauthorized:chat').toResponse();
     }
 
-    const userType: UserType = session.user.type;
-    let unpriceCustomerId: string | undefined;
-    let unpriceRunId: string | undefined;
     const chat = await getChatById({ id });
 
     if (chat && chat.userId !== session.user.id) {
       return new ChatSDKError('forbidden:chat').toResponse();
     }
 
-    if (userType === 'regular') {
-      const registeredUser = await getUserById(session.user.id);
+    const registeredUser = await getUserById(session.user.id);
 
-      if (!registeredUser?.unpriceCustomerId) {
-        return new ChatSDKError('service_unavailable:billing').toResponse();
-      }
+    if (!registeredUser?.unpriceCustomerId) {
+      return new ChatSDKError('service_unavailable:billing').toResponse();
+    }
 
-      unpriceCustomerId = registeredUser.unpriceCustomerId;
+    const unpriceCustomerId = registeredUser.unpriceCustomerId;
 
-      const tokenAccess = await checkTotalTokenAccess(unpriceCustomerId);
+    const tokenAccess = await checkTotalTokenAccess(unpriceCustomerId);
 
-      if (!tokenAccess.allowed) {
+    if (!tokenAccess.allowed) {
+      return new ChatSDKError(
+        'rate_limit:billing',
+        tokenAccess.rejectionReason,
+      ).toResponse();
+    }
+
+    if (selectedChatModel === 'chat-model-reasoning') {
+      const modelAccess = await checkReasoningModelAccess(unpriceCustomerId);
+
+      if (!modelAccess.allowed) {
         return new ChatSDKError(
-          'rate_limit:billing',
-          tokenAccess.rejectionReason,
+          'forbidden:billing',
+          modelAccess.rejectionReason,
         ).toResponse();
-      }
-
-      if (selectedChatModel === 'chat-model-reasoning') {
-        const modelAccess = await checkReasoningModelAccess(unpriceCustomerId);
-
-        if (!modelAccess.allowed) {
-          return new ChatSDKError(
-            'forbidden:billing',
-            modelAccess.rejectionReason,
-          ).toResponse();
-        }
-      }
-
-      const budgetRun = await startChatBudgetRun({
-        customerId: unpriceCustomerId,
-        chatId: id,
-      });
-
-      if (
-        budgetRun.status !== 'running' ||
-        budgetRun.remainingAmountMinor <= 0
-      ) {
-        return new ChatSDKError(
-          'rate_limit:billing',
-          'BUDGET_EXCEEDED',
-        ).toResponse();
-      }
-
-      unpriceRunId = budgetRun.runId;
-    } else {
-      const messageCount = await getMessageCountByUserId({
-        id: session.user.id,
-        differenceInHours: 24,
-      });
-
-      if (messageCount > entitlementsByUserType[userType].maxMessagesPerDay) {
-        return new ChatSDKError('rate_limit:chat').toResponse();
       }
     }
+
+    const budgetRun = await startChatBudgetRun({
+      customerId: unpriceCustomerId,
+      chatId: id,
+    });
+
+    if (budgetRun.status !== 'running' || budgetRun.remainingAmountMinor <= 0) {
+      return new ChatSDKError(
+        'rate_limit:billing',
+        'BUDGET_EXCEEDED',
+      ).toResponse();
+    }
+
+    const unpriceRunId = budgetRun.runId;
 
     if (!chat) {
       const title = await generateTitleFromUserMessage({
@@ -361,7 +342,7 @@ export async function GET(request: Request) {
 
   const session = await auth();
 
-  if (!session?.user) {
+  if (!isRegularUser(session)) {
     return new ChatSDKError('unauthorized:chat').toResponse();
   }
 
@@ -449,7 +430,7 @@ export async function DELETE(request: Request) {
 
   const session = await auth();
 
-  if (!session?.user) {
+  if (!isRegularUser(session)) {
     return new ChatSDKError('unauthorized:chat').toResponse();
   }
 

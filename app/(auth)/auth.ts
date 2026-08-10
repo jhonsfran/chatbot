@@ -1,12 +1,12 @@
 import { compare } from 'bcrypt-ts';
-import NextAuth, { type DefaultSession } from 'next-auth';
+import NextAuth, { type DefaultSession, type Session } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import { createGuestUser, getUser } from '@/lib/db/queries';
+import { getUser } from '@/lib/db/queries';
 import { authConfig } from './auth.config';
 import { DUMMY_PASSWORD } from '@/lib/constants';
 import type { DefaultJWT } from 'next-auth/jwt';
 
-export type UserType = 'guest' | 'regular';
+export type UserType = 'regular';
 
 declare module 'next-auth' {
   interface Session extends DefaultSession {
@@ -55,14 +55,6 @@ export const {
         return { ...user, type: 'regular' };
       },
     }),
-    Credentials({
-      id: 'guest',
-      credentials: {},
-      async authorize() {
-        const [guestUser] = await createGuestUser();
-        return { ...guestUser, type: 'guest' };
-      },
-    }),
   ],
   callbacks: {
     async jwt({ token, user }) {
@@ -83,3 +75,7 @@ export const {
     },
   },
 });
+
+export function isRegularUser(session: Session | null): session is Session {
+  return session?.user?.type === 'regular';
+}

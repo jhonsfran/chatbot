@@ -67,6 +67,9 @@ function PureArtifact({
   reload,
   votes,
   isReadonly,
+  isAuthenticated,
+  onAuthenticationRequired,
+  onSuggestedAction,
   selectedVisibilityType,
 }: {
   chatId: string;
@@ -83,6 +86,9 @@ function PureArtifact({
   handleSubmit: UseChatHelpers['handleSubmit'];
   reload: UseChatHelpers['reload'];
   isReadonly: boolean;
+  isAuthenticated: boolean;
+  onAuthenticationRequired: () => void;
+  onSuggestedAction: (action: string) => void;
   selectedVisibilityType: VisibilityType;
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
@@ -335,10 +341,12 @@ function PureArtifact({
                     attachments={attachments}
                     setAttachments={setAttachments}
                     messages={messages}
-                    append={append}
                     className="bg-background dark:bg-muted"
                     setMessages={setMessages}
                     selectedVisibilityType={selectedVisibilityType}
+                    isAuthenticated={isAuthenticated}
+                    onAuthenticationRequired={onAuthenticationRequired}
+                    onSuggestedAction={onSuggestedAction}
                   />
                 </form>
               </div>
