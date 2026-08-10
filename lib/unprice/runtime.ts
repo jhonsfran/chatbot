@@ -472,9 +472,11 @@ function getChatBudgetWindow(now = new Date()) {
 export async function startChatBudgetRun({
   customerId,
   chatId,
+  messageId,
 }: {
   customerId: string;
   chatId: string;
+  messageId: string;
 }) {
   const window = getChatBudgetWindow();
 
@@ -483,7 +485,7 @@ export async function startChatBudgetRun({
     await (await getRuntimeClient()).runs.start({
       customerId,
       budgetAmountMinor: CHAT_CONVERSATION_BUDGET_MINOR,
-      idempotencyKey: `chat:${customerId}:${chatId}:budget:${window.key}`,
+      idempotencyKey: `chat:${customerId}:${chatId}:${messageId}:budget:${window.key}`,
       workloadType: 'custom',
       workloadId: chatId,
       expiresAt: window.expiresAt,

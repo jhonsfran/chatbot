@@ -2,7 +2,7 @@
 
 import type { Attachment, UIMessage } from 'ai';
 import { useChat } from '@ai-sdk/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { ChatHeader } from '@/components/chat-header';
 import type { Vote } from '@/lib/db/schema';
@@ -81,14 +81,17 @@ export function Chat({
       selectedChatModel: initialChatModel,
       selectedVisibilityType: visibilityType,
     }),
-    onFinish: () => {
-      mutate(unstable_serialize(getChatHistoryPaginationKey));
-      mutate('/api/billing/usage');
+    onFinish: async () => {
+      await Promise.all([
+        mutate(unstable_serialize(getChatHistoryPaginationKey)),
+        mutate('/api/billing/usage'),
+      ]);
     },
     onError: (error) => {
       if (error instanceof ChatSDKError) {
         if (error.type === 'rate_limit' && error.surface === 'billing') {
           showUpgradePrompt();
+          return;
         }
 
         toast({
@@ -103,6 +106,29 @@ export function Chat({
   const query = searchParams.get('query');
 
   const [hasAppendedQuery, setHasAppendedQuery] = useState(false);
+  const lastProcessedBillingDataIndex = useRef(-1);
+
+  useEffect(() => {
+    if (!data?.length) {
+      return;
+    }
+
+    const newData = data.slice(lastProcessedBillingDataIndex.current + 1);
+    lastProcessedBillingDataIndex.current = data.length - 1;
+
+    if (
+      newData.some(
+        (part) =>
+          typeof part === 'object' &&
+          part !== null &&
+          !Array.isArray(part) &&
+          'type' in part &&
+          part.type === 'billing-limit-reached',
+      )
+    ) {
+      showUpgradePrompt();
+    }
+  }, [data, showUpgradePrompt]);
 
   useEffect(() => {
     if (query && !hasAppendedQuery) {

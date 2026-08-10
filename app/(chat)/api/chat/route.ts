@@ -47,7 +47,40 @@ import {
 
 export const maxDuration = 60;
 
+const MAX_RESPONSE_TOKENS = 4_096;
+const TOKEN_ESTIMATE_CHARS_PER_TOKEN = 3;
+const TOKEN_ESTIMATE_SYSTEM_MARGIN = 512;
+const budgetRejectionCodes = new Set([
+  'LIMIT_EXCEEDED',
+  'RUN_BUDGET_EXCEEDED',
+  'WALLET_EMPTY',
+]);
+
 let globalStreamContext: ResumableStreamContext | null = null;
+
+function getAvailableOutputTokens({
+  limit,
+  usage,
+  messages,
+}: {
+  limit: number | null | undefined;
+  usage: number | undefined;
+  messages: unknown;
+}) {
+  if (limit == null) {
+    return undefined;
+  }
+
+  const estimatedInputTokens =
+    Math.ceil(
+      JSON.stringify(messages).length / TOKEN_ESTIMATE_CHARS_PER_TOKEN,
+    ) + TOKEN_ESTIMATE_SYSTEM_MARGIN;
+  const remainingTokens = limit - (usage ?? 0) - estimatedInputTokens;
+
+  return remainingTokens > 0
+    ? Math.min(MAX_RESPONSE_TOKENS, remainingTokens)
+    : 0;
+}
 
 function getStreamContext() {
   if (!globalStreamContext) {
@@ -123,9 +156,29 @@ export async function POST(request: Request) {
       }
     }
 
+    const previousMessages = await getMessagesByChatId({ id });
+    const messages = appendClientMessage({
+      // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
+      messages: previousMessages,
+      message,
+    });
+    const availableOutputTokens = getAvailableOutputTokens({
+      limit: tokenAccess.limit,
+      usage: tokenAccess.usage,
+      messages,
+    });
+
+    if (availableOutputTokens === 0) {
+      return new ChatSDKError(
+        'rate_limit:billing',
+        'LIMIT_EXCEEDED',
+      ).toResponse();
+    }
+
     const budgetRun = await startChatBudgetRun({
       customerId: unpriceCustomerId,
       chatId: id,
+      messageId: message.id,
     });
 
     if (budgetRun.status !== 'running' || budgetRun.remainingAmountMinor <= 0) {
@@ -149,14 +202,6 @@ export async function POST(request: Request) {
         visibility: selectedVisibilityType,
       });
     }
-
-    const previousMessages = await getMessagesByChatId({ id });
-
-    const messages = appendClientMessage({
-      // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
-      messages: previousMessages,
-      message,
-    });
 
     const { longitude, latitude, city, country } = geolocation(request);
 
@@ -189,6 +234,9 @@ export async function POST(request: Request) {
           model: myProvider.languageModel(selectedChatModel),
           system: systemPrompt({ selectedChatModel, requestHints }),
           messages,
+          ...(availableOutputTokens
+            ? { maxTokens: availableOutputTokens }
+            : {}),
           maxSteps: 5,
           experimental_activeTools:
             selectedChatModel === 'chat-model-reasoning'
@@ -257,22 +305,14 @@ export async function POST(request: Request) {
                   outputTokens: usage.completionTokens,
                 });
 
-                if (
-                  !consumption.accepted &&
-                  consumption.run.status === 'running'
-                ) {
+                if (!consumption.accepted) {
+                  dataStream.writeData({ type: 'billing-limit-reached' });
+                }
+
+                if (consumption.run.status === 'running') {
                   await endChatBudgetRun({
                     runId: unpriceRunId,
-                    status: 'failed',
-                  });
-                } else if (
-                  consumption.accepted &&
-                  consumption.run.status === 'running' &&
-                  consumption.run.remainingAmountMinor <= 0
-                ) {
-                  await endChatBudgetRun({
-                    runId: unpriceRunId,
-                    status: 'completed',
+                    status: consumption.accepted ? 'completed' : 'failed',
                   });
                 }
               } catch (error) {
@@ -314,6 +354,10 @@ export async function POST(request: Request) {
     if (error instanceof UnpriceRuntimeError) {
       if (error.code === 'FORBIDDEN') {
         return new ChatSDKError('forbidden:account', error.code).toResponse();
+      }
+
+      if (budgetRejectionCodes.has(error.code)) {
+        return new ChatSDKError('rate_limit:billing', error.code).toResponse();
       }
 
       logUnpriceError('Failed to enforce chat monetization', error);
