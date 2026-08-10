@@ -3,19 +3,16 @@
 import { motion } from 'framer-motion';
 import { Button } from './ui/button';
 import { memo } from 'react';
-import type { UseChatHelpers } from '@ai-sdk/react';
 import type { VisibilityType } from './visibility-selector';
 
 interface SuggestedActionsProps {
-  chatId: string;
-  append: UseChatHelpers['append'];
   selectedVisibilityType: VisibilityType;
+  onSuggestedAction: (action: string) => void;
 }
 
 function PureSuggestedActions({
-  chatId,
-  append,
   selectedVisibilityType,
+  onSuggestedAction,
 }: SuggestedActionsProps) {
   const suggestedActions = [
     {
@@ -56,14 +53,8 @@ function PureSuggestedActions({
         >
           <Button
             variant="ghost"
-            onClick={async () => {
-              window.history.replaceState({}, '', `/chat/${chatId}`);
-
-              append({
-                role: 'user',
-                content: suggestedAction.action,
-              });
-            }}
+            type="button"
+            onClick={() => onSuggestedAction(suggestedAction.action)}
             className="text-left border rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"
           >
             <span className="font-medium">{suggestedAction.title}</span>
@@ -80,8 +71,9 @@ function PureSuggestedActions({
 export const SuggestedActions = memo(
   PureSuggestedActions,
   (prevProps, nextProps) => {
-    if (prevProps.chatId !== nextProps.chatId) return false;
     if (prevProps.selectedVisibilityType !== nextProps.selectedVisibilityType)
+      return false;
+    if (prevProps.onSuggestedAction !== nextProps.onSuggestedAction)
       return false;
 
     return true;

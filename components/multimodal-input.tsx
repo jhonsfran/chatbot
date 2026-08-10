@@ -38,10 +38,12 @@ function PureMultimodalInput({
   setAttachments,
   messages,
   setMessages,
-  append,
   handleSubmit,
   className,
   selectedVisibilityType,
+  isAuthenticated,
+  onAuthenticationRequired,
+  onSuggestedAction,
 }: {
   chatId: string;
   input: UseChatHelpers['input'];
@@ -52,10 +54,12 @@ function PureMultimodalInput({
   setAttachments: Dispatch<SetStateAction<Array<Attachment>>>;
   messages: Array<UIMessage>;
   setMessages: UseChatHelpers['setMessages'];
-  append: UseChatHelpers['append'];
   handleSubmit: UseChatHelpers['handleSubmit'];
   className?: string;
   selectedVisibilityType: VisibilityType;
+  isAuthenticated: boolean;
+  onAuthenticationRequired: () => void;
+  onSuggestedAction: (action: string) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -110,6 +114,11 @@ function PureMultimodalInput({
   const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
 
   const submitForm = useCallback(() => {
+    if (!isAuthenticated) {
+      onAuthenticationRequired();
+      return;
+    }
+
     window.history.replaceState({}, '', `/chat/${chatId}`);
 
     handleSubmit(undefined, {
@@ -130,6 +139,8 @@ function PureMultimodalInput({
     setLocalStorageInput,
     width,
     chatId,
+    isAuthenticated,
+    onAuthenticationRequired,
   ]);
 
   const uploadFile = async (file: File) => {
@@ -161,6 +172,12 @@ function PureMultimodalInput({
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
+      if (!isAuthenticated) {
+        event.target.value = '';
+        onAuthenticationRequired();
+        return;
+      }
+
       const files = Array.from(event.target.files || []);
 
       setUploadQueue(files.map((file) => file.name));
@@ -182,7 +199,7 @@ function PureMultimodalInput({
         setUploadQueue([]);
       }
     },
-    [setAttachments],
+    [isAuthenticated, onAuthenticationRequired, setAttachments],
   );
 
   const { isAtBottom, scrollToBottom } = useScrollToBottom();
@@ -224,9 +241,8 @@ function PureMultimodalInput({
         attachments.length === 0 &&
         uploadQueue.length === 0 && (
           <SuggestedActions
-            append={append}
-            chatId={chatId}
             selectedVisibilityType={selectedVisibilityType}
+            onSuggestedAction={onSuggestedAction}
           />
         )}
 
@@ -292,7 +308,12 @@ function PureMultimodalInput({
       />
 
       <div className="absolute bottom-0 p-2 w-fit flex flex-row justify-start">
-        <AttachmentsButton fileInputRef={fileInputRef} status={status} />
+        <AttachmentsButton
+          fileInputRef={fileInputRef}
+          status={status}
+          isAuthenticated={isAuthenticated}
+          onAuthenticationRequired={onAuthenticationRequired}
+        />
       </div>
 
       <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end">
@@ -316,6 +337,13 @@ export const MultimodalInput = memo(
     if (prevProps.input !== nextProps.input) return false;
     if (prevProps.status !== nextProps.status) return false;
     if (!equal(prevProps.attachments, nextProps.attachments)) return false;
+    if (prevProps.isAuthenticated !== nextProps.isAuthenticated) return false;
+    if (
+      prevProps.onAuthenticationRequired !== nextProps.onAuthenticationRequired
+    )
+      return false;
+    if (prevProps.onSuggestedAction !== nextProps.onSuggestedAction)
+      return false;
     if (prevProps.selectedVisibilityType !== nextProps.selectedVisibilityType)
       return false;
 
@@ -326,9 +354,13 @@ export const MultimodalInput = memo(
 function PureAttachmentsButton({
   fileInputRef,
   status,
+  isAuthenticated,
+  onAuthenticationRequired,
 }: {
   fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
   status: UseChatHelpers['status'];
+  isAuthenticated: boolean;
+  onAuthenticationRequired: () => void;
 }) {
   return (
     <Button
@@ -336,6 +368,12 @@ function PureAttachmentsButton({
       className="rounded-md rounded-bl-lg p-[7px] h-fit dark:border-zinc-700 hover:dark:bg-zinc-900 hover:bg-zinc-200"
       onClick={(event) => {
         event.preventDefault();
+
+        if (!isAuthenticated) {
+          onAuthenticationRequired();
+          return;
+        }
+
         fileInputRef.current?.click();
       }}
       disabled={status !== 'ready'}

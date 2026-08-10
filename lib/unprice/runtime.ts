@@ -1,7 +1,6 @@
 import 'server-only';
 
 import { Unprice, type ApiError, type ApiResult } from '@unprice/api';
-import { isTestEnvironment } from '@/lib/constants';
 import { unpriceCatalog } from './catalog';
 
 type HeaderReader = Pick<Headers, 'get'>;
@@ -127,19 +126,12 @@ function unwrap<TResult>(
   return response.result;
 }
 
-async function getTestFetch() {
-  const { testFetch } = await import('./test-fetch');
-  return testFetch;
-}
-
 async function getRuntimeClient(): Promise<Unprice> {
   if (runtimeClient) {
     return runtimeClient;
   }
 
-  const token = isTestEnvironment
-    ? 'unprice_test_runtime'
-    : process.env.UNPRICE_TOKEN;
+  const token = process.env.UNPRICE_TOKEN;
 
   if (!token) {
     throw new UnpriceRuntimeError(
@@ -150,23 +142,18 @@ async function getRuntimeClient(): Promise<Unprice> {
     );
   }
 
-  const testFetch = isTestEnvironment ? await getTestFetch() : undefined;
-
   runtimeClient = new Unprice({
     token,
     ...(process.env.UNPRICE_API_URL
       ? { baseUrl: process.env.UNPRICE_API_URL }
       : {}),
-    ...(testFetch ? { fetch: testFetch } : {}),
   });
 
   return runtimeClient;
 }
 
 function getRuntimeToken(): string {
-  const token = isTestEnvironment
-    ? 'unprice_test_runtime'
-    : process.env.UNPRICE_TOKEN;
+  const token = process.env.UNPRICE_TOKEN;
 
   if (!token) {
     throw new UnpriceRuntimeError(
@@ -196,8 +183,7 @@ async function postUnpriceRuntimeOperation<TResult>(
       body: JSON.stringify(body),
     },
   );
-  const runtimeFetch = isTestEnvironment ? await getTestFetch() : fetch;
-  const response = await runtimeFetch(request);
+  const response = await fetch(request);
   const payload = (await response.json()) as
     | TResult
     | {
@@ -379,16 +365,14 @@ function toCustomerBillingPeriod(
 export async function getCustomerUsageSummary(
   customerId: string,
 ): Promise<CustomerUsageSummary> {
-  const [tokenStatus, entitlements] = await Promise.all([
+  const [tokenStatus, entitlements, billingPeriod] = await Promise.all([
     checkTotalTokenAccess(customerId),
     postUnpriceRuntimeOperation<CustomerEntitlement[]>(
       'access.entitlements.list',
       '/v1/access/entitlements/list',
       { customerId },
     ),
-  ]);
-  const billingPeriod =
-    await postUnpriceRuntimeOperation<CurrentBillingPeriodUsageResponse>(
+    postUnpriceRuntimeOperation<CurrentBillingPeriodUsageResponse>(
       'analytics.usage.currentBillingPeriod',
       '/v1/analytics/usage/current-billing-period',
       { customer_id: customerId },
@@ -397,7 +381,8 @@ export async function getCustomerUsageSummary(
       .catch((error) => {
         logUnpriceError('Current billing-period usage is unavailable', error);
         return null;
-      });
+      }),
+  ]);
   const tokenEntitlement = findFeatureEntitlement(
     entitlements,
     unpriceCatalog.features.totalTokens,
@@ -486,9 +471,11 @@ function getChatBudgetWindow(now = new Date()) {
 export async function startChatBudgetRun({
   customerId,
   chatId,
+  messageId,
 }: {
   customerId: string;
   chatId: string;
+  messageId: string;
 }) {
   const window = getChatBudgetWindow();
 
@@ -497,7 +484,7 @@ export async function startChatBudgetRun({
     await (await getRuntimeClient()).runs.start({
       customerId,
       budgetAmountMinor: CHAT_CONVERSATION_BUDGET_MINOR,
-      idempotencyKey: `chat:${customerId}:${chatId}:budget:${window.key}`,
+      idempotencyKey: `chat:${customerId}:${chatId}:${messageId}:budget:${window.key}`,
       workloadType: 'custom',
       workloadId: chatId,
       expiresAt: window.expiresAt,

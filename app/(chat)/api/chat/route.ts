@@ -5,13 +5,12 @@ import {
   smoothStream,
   streamText,
 } from 'ai';
-import { auth, type UserType } from '@/app/(auth)/auth';
+import { auth, isRegularUser } from '@/app/(auth)/auth';
 import { type RequestHints, systemPrompt } from '@/lib/ai/prompts';
 import {
   createStreamId,
   deleteChatById,
   getChatById,
-  getMessageCountByUserId,
   getMessagesByChatId,
   getStreamIdsByChatId,
   getUserById,
@@ -26,7 +25,6 @@ import { requestSuggestions } from '@/lib/ai/tools/request-suggestions';
 import { getWeather } from '@/lib/ai/tools/get-weather';
 import { isProductionEnvironment } from '@/lib/constants';
 import { myProvider } from '@/lib/ai/providers';
-import { entitlementsByUserType } from '@/lib/ai/entitlements';
 import { postRequestBodySchema, type PostRequestBody } from './schema';
 import { geolocation } from '@vercel/functions';
 import {
@@ -48,6 +46,12 @@ import {
 } from '@/lib/unprice/runtime';
 
 export const maxDuration = 60;
+
+const budgetRejectionCodes = new Set([
+  'LIMIT_EXCEEDED',
+  'RUN_BUDGET_EXCEEDED',
+  'WALLET_EMPTY',
+]);
 
 let globalStreamContext: ResumableStreamContext | null = null;
 
@@ -87,74 +91,66 @@ export async function POST(request: Request) {
 
     const session = await auth();
 
-    if (!session?.user) {
+    if (!isRegularUser(session)) {
       return new ChatSDKError('unauthorized:chat').toResponse();
     }
 
-    const userType: UserType = session.user.type;
-    let unpriceCustomerId: string | undefined;
-    let unpriceRunId: string | undefined;
-    const chat = await getChatById({ id });
+    const [chat, registeredUser] = await Promise.all([
+      getChatById({ id }),
+      getUserById(session.user.id),
+    ]);
 
     if (chat && chat.userId !== session.user.id) {
       return new ChatSDKError('forbidden:chat').toResponse();
     }
 
-    if (userType === 'regular') {
-      const registeredUser = await getUserById(session.user.id);
-
-      if (!registeredUser?.unpriceCustomerId) {
-        return new ChatSDKError('service_unavailable:billing').toResponse();
-      }
-
-      unpriceCustomerId = registeredUser.unpriceCustomerId;
-
-      const tokenAccess = await checkTotalTokenAccess(unpriceCustomerId);
-
-      if (!tokenAccess.allowed) {
-        return new ChatSDKError(
-          'rate_limit:billing',
-          tokenAccess.rejectionReason,
-        ).toResponse();
-      }
-
-      if (selectedChatModel === 'chat-model-reasoning') {
-        const modelAccess = await checkReasoningModelAccess(unpriceCustomerId);
-
-        if (!modelAccess.allowed) {
-          return new ChatSDKError(
-            'forbidden:billing',
-            modelAccess.rejectionReason,
-          ).toResponse();
-        }
-      }
-
-      const budgetRun = await startChatBudgetRun({
-        customerId: unpriceCustomerId,
-        chatId: id,
-      });
-
-      if (
-        budgetRun.status !== 'running' ||
-        budgetRun.remainingAmountMinor <= 0
-      ) {
-        return new ChatSDKError(
-          'rate_limit:billing',
-          'BUDGET_EXCEEDED',
-        ).toResponse();
-      }
-
-      unpriceRunId = budgetRun.runId;
-    } else {
-      const messageCount = await getMessageCountByUserId({
-        id: session.user.id,
-        differenceInHours: 24,
-      });
-
-      if (messageCount > entitlementsByUserType[userType].maxMessagesPerDay) {
-        return new ChatSDKError('rate_limit:chat').toResponse();
-      }
+    if (!registeredUser?.unpriceCustomerId) {
+      return new ChatSDKError('service_unavailable:billing').toResponse();
     }
+
+    const unpriceCustomerId = registeredUser.unpriceCustomerId;
+
+    const [tokenAccess, modelAccess, previousMessages] = await Promise.all([
+      checkTotalTokenAccess(unpriceCustomerId),
+      selectedChatModel === 'chat-model-reasoning'
+        ? checkReasoningModelAccess(unpriceCustomerId)
+        : Promise.resolve(null),
+      getMessagesByChatId({ id }),
+    ]);
+
+    if (!tokenAccess.allowed) {
+      return new ChatSDKError(
+        'rate_limit:billing',
+        tokenAccess.rejectionReason,
+      ).toResponse();
+    }
+
+    if (modelAccess && !modelAccess.allowed) {
+      return new ChatSDKError(
+        'forbidden:billing',
+        modelAccess.rejectionReason,
+      ).toResponse();
+    }
+
+    const messages = appendClientMessage({
+      // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
+      messages: previousMessages,
+      message,
+    });
+    const budgetRun = await startChatBudgetRun({
+      customerId: unpriceCustomerId,
+      chatId: id,
+      messageId: message.id,
+    });
+
+    if (budgetRun.status !== 'running' || budgetRun.remainingAmountMinor <= 0) {
+      return new ChatSDKError(
+        'rate_limit:billing',
+        'BUDGET_EXCEEDED',
+      ).toResponse();
+    }
+
+    const unpriceRunId = budgetRun.runId;
 
     if (!chat) {
       const title = await generateTitleFromUserMessage({
@@ -168,14 +164,6 @@ export async function POST(request: Request) {
         visibility: selectedVisibilityType,
       });
     }
-
-    const previousMessages = await getMessagesByChatId({ id });
-
-    const messages = appendClientMessage({
-      // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
-      messages: previousMessages,
-      message,
-    });
 
     const { longitude, latitude, city, country } = geolocation(request);
 
@@ -276,22 +264,14 @@ export async function POST(request: Request) {
                   outputTokens: usage.completionTokens,
                 });
 
-                if (
-                  !consumption.accepted &&
-                  consumption.run.status === 'running'
-                ) {
+                if (!consumption.accepted) {
+                  dataStream.writeData({ type: 'billing-limit-reached' });
+                }
+
+                if (consumption.run.status === 'running') {
                   await endChatBudgetRun({
                     runId: unpriceRunId,
-                    status: 'failed',
-                  });
-                } else if (
-                  consumption.accepted &&
-                  consumption.run.status === 'running' &&
-                  consumption.run.remainingAmountMinor <= 0
-                ) {
-                  await endChatBudgetRun({
-                    runId: unpriceRunId,
-                    status: 'completed',
+                    status: consumption.accepted ? 'completed' : 'failed',
                   });
                 }
               } catch (error) {
@@ -335,6 +315,10 @@ export async function POST(request: Request) {
         return new ChatSDKError('forbidden:account', error.code).toResponse();
       }
 
+      if (budgetRejectionCodes.has(error.code)) {
+        return new ChatSDKError('rate_limit:billing', error.code).toResponse();
+      }
+
       logUnpriceError('Failed to enforce chat monetization', error);
       return new ChatSDKError('service_unavailable:billing').toResponse();
     }
@@ -361,7 +345,7 @@ export async function GET(request: Request) {
 
   const session = await auth();
 
-  if (!session?.user) {
+  if (!isRegularUser(session)) {
     return new ChatSDKError('unauthorized:chat').toResponse();
   }
 
@@ -449,7 +433,7 @@ export async function DELETE(request: Request) {
 
   const session = await auth();
 
-  if (!session?.user) {
+  if (!isRegularUser(session)) {
     return new ChatSDKError('unauthorized:chat').toResponse();
   }
 
