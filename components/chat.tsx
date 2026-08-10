@@ -81,8 +81,8 @@ export function Chat({
       selectedChatModel: initialChatModel,
       selectedVisibilityType: visibilityType,
     }),
-    onFinish: async () => {
-      await Promise.all([
+    onFinish: () => {
+      void Promise.all([
         mutate(unstable_serialize(getChatHistoryPaginationKey)),
         mutate('/api/billing/usage'),
       ]);

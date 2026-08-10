@@ -47,9 +47,6 @@ import {
 
 export const maxDuration = 60;
 
-const MAX_RESPONSE_TOKENS = 4_096;
-const TOKEN_ESTIMATE_CHARS_PER_TOKEN = 3;
-const TOKEN_ESTIMATE_SYSTEM_MARGIN = 512;
 const budgetRejectionCodes = new Set([
   'LIMIT_EXCEEDED',
   'RUN_BUDGET_EXCEEDED',
@@ -57,30 +54,6 @@ const budgetRejectionCodes = new Set([
 ]);
 
 let globalStreamContext: ResumableStreamContext | null = null;
-
-function getAvailableOutputTokens({
-  limit,
-  usage,
-  messages,
-}: {
-  limit: number | null | undefined;
-  usage: number | undefined;
-  messages: unknown;
-}) {
-  if (limit == null) {
-    return undefined;
-  }
-
-  const estimatedInputTokens =
-    Math.ceil(
-      JSON.stringify(messages).length / TOKEN_ESTIMATE_CHARS_PER_TOKEN,
-    ) + TOKEN_ESTIMATE_SYSTEM_MARGIN;
-  const remainingTokens = limit - (usage ?? 0) - estimatedInputTokens;
-
-  return remainingTokens > 0
-    ? Math.min(MAX_RESPONSE_TOKENS, remainingTokens)
-    : 0;
-}
 
 function getStreamContext() {
   if (!globalStreamContext) {
@@ -122,13 +95,14 @@ export async function POST(request: Request) {
       return new ChatSDKError('unauthorized:chat').toResponse();
     }
 
-    const chat = await getChatById({ id });
+    const [chat, registeredUser] = await Promise.all([
+      getChatById({ id }),
+      getUserById(session.user.id),
+    ]);
 
     if (chat && chat.userId !== session.user.id) {
       return new ChatSDKError('forbidden:chat').toResponse();
     }
-
-    const registeredUser = await getUserById(session.user.id);
 
     if (!registeredUser?.unpriceCustomerId) {
       return new ChatSDKError('service_unavailable:billing').toResponse();
@@ -136,7 +110,13 @@ export async function POST(request: Request) {
 
     const unpriceCustomerId = registeredUser.unpriceCustomerId;
 
-    const tokenAccess = await checkTotalTokenAccess(unpriceCustomerId);
+    const [tokenAccess, modelAccess, previousMessages] = await Promise.all([
+      checkTotalTokenAccess(unpriceCustomerId),
+      selectedChatModel === 'chat-model-reasoning'
+        ? checkReasoningModelAccess(unpriceCustomerId)
+        : Promise.resolve(null),
+      getMessagesByChatId({ id }),
+    ]);
 
     if (!tokenAccess.allowed) {
       return new ChatSDKError(
@@ -145,36 +125,18 @@ export async function POST(request: Request) {
       ).toResponse();
     }
 
-    if (selectedChatModel === 'chat-model-reasoning') {
-      const modelAccess = await checkReasoningModelAccess(unpriceCustomerId);
-
-      if (!modelAccess.allowed) {
-        return new ChatSDKError(
-          'forbidden:billing',
-          modelAccess.rejectionReason,
-        ).toResponse();
-      }
+    if (modelAccess && !modelAccess.allowed) {
+      return new ChatSDKError(
+        'forbidden:billing',
+        modelAccess.rejectionReason,
+      ).toResponse();
     }
 
-    const previousMessages = await getMessagesByChatId({ id });
     const messages = appendClientMessage({
       // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
       messages: previousMessages,
       message,
     });
-    const availableOutputTokens = getAvailableOutputTokens({
-      limit: tokenAccess.limit,
-      usage: tokenAccess.usage,
-      messages,
-    });
-
-    if (availableOutputTokens === 0) {
-      return new ChatSDKError(
-        'rate_limit:billing',
-        'LIMIT_EXCEEDED',
-      ).toResponse();
-    }
-
     const budgetRun = await startChatBudgetRun({
       customerId: unpriceCustomerId,
       chatId: id,
@@ -234,9 +196,6 @@ export async function POST(request: Request) {
           model: myProvider.languageModel(selectedChatModel),
           system: systemPrompt({ selectedChatModel, requestHints }),
           messages,
-          ...(availableOutputTokens
-            ? { maxTokens: availableOutputTokens }
-            : {}),
           maxSteps: 5,
           experimental_activeTools:
             selectedChatModel === 'chat-model-reasoning'

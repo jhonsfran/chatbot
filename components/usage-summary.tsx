@@ -192,10 +192,47 @@ function BillingUsageUnavailable() {
   );
 }
 
+function UsageSummarySkeleton() {
+  return (
+    <SidebarGroup>
+      <SidebarGroupContent>
+        <section
+          aria-busy="true"
+          aria-label="Loading usage"
+          className="min-h-[118px] rounded-xl border border-sidebar-foreground/15 bg-sidebar-accent/40 p-3"
+          data-testid="usage-summary-loading"
+        >
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-[10px] text-sidebar-foreground/55 uppercase tracking-[0.15em]">
+              Usage
+            </p>
+            <div className="h-2.5 w-20 animate-pulse rounded bg-sidebar-foreground/10" />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="h-3 w-12 animate-pulse rounded bg-sidebar-foreground/10" />
+            <div className="h-3 w-24 animate-pulse rounded bg-sidebar-foreground/10" />
+          </div>
+          <div className="mt-2 h-1 animate-pulse rounded-full bg-sidebar-foreground/10" />
+          <div className="mt-1.5 h-2.5 w-28 animate-pulse rounded bg-sidebar-foreground/10" />
+        </section>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 export function UsageSummary() {
-  const { data } = useSWR<UsageSummaryResponse>('/api/billing/usage', fetcher, {
-    revalidateOnFocus: true,
-  });
+  const { data, isLoading } = useSWR<UsageSummaryResponse>(
+    '/api/billing/usage',
+    fetcher,
+    {
+      keepPreviousData: true,
+      revalidateOnFocus: true,
+    },
+  );
+
+  if (isLoading) {
+    return <UsageSummarySkeleton />;
+  }
 
   if (!data?.available) {
     return null;

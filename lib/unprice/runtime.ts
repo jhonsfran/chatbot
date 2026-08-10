@@ -365,16 +365,14 @@ function toCustomerBillingPeriod(
 export async function getCustomerUsageSummary(
   customerId: string,
 ): Promise<CustomerUsageSummary> {
-  const [tokenStatus, entitlements] = await Promise.all([
+  const [tokenStatus, entitlements, billingPeriod] = await Promise.all([
     checkTotalTokenAccess(customerId),
     postUnpriceRuntimeOperation<CustomerEntitlement[]>(
       'access.entitlements.list',
       '/v1/access/entitlements/list',
       { customerId },
     ),
-  ]);
-  const billingPeriod =
-    await postUnpriceRuntimeOperation<CurrentBillingPeriodUsageResponse>(
+    postUnpriceRuntimeOperation<CurrentBillingPeriodUsageResponse>(
       'analytics.usage.currentBillingPeriod',
       '/v1/analytics/usage/current-billing-period',
       { customer_id: customerId },
@@ -383,7 +381,8 @@ export async function getCustomerUsageSummary(
       .catch((error) => {
         logUnpriceError('Current billing-period usage is unavailable', error);
         return null;
-      });
+      }),
+  ]);
   const tokenEntitlement = findFeatureEntitlement(
     entitlements,
     unpriceCatalog.features.totalTokens,
