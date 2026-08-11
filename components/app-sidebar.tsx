@@ -7,7 +7,6 @@ import { NewChatButton } from '@/components/new-chat-button';
 import { SidebarHistory } from '@/components/sidebar-history';
 import { SidebarUserNav } from '@/components/sidebar-user-nav';
 import { useUpgradePrompt } from '@/components/upgrade-prompt';
-import { UsageSummary } from '@/components/usage-summary';
 import { Button } from '@/components/ui/button';
 import {
   Sidebar,
@@ -110,7 +109,6 @@ export function AppSidebar({ user }: { user: User | undefined }) {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-        {user && <UsageSummary />}
         <SidebarHistory user={user} />
       </SidebarContent>
       <SidebarFooter>{user && <SidebarUserNav user={user} />}</SidebarFooter>

@@ -82,10 +82,7 @@ export function Chat({
       selectedVisibilityType: visibilityType,
     }),
     onFinish: () => {
-      void Promise.all([
-        mutate(unstable_serialize(getChatHistoryPaginationKey)),
-        mutate('/api/billing/usage'),
-      ]);
+      void mutate(unstable_serialize(getChatHistoryPaginationKey));
     },
     onError: (error) => {
       if (error instanceof ChatSDKError) {
