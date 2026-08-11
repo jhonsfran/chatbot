@@ -61,9 +61,17 @@ The command prints a `reviewUrl` and stops. A human must review and publish the 
 
 - Free: 10,000 tokens/day, capped at $0.10 for each chat per UTC day. New customers receive a $3.30 monthly credit line so those reservations can run (the maximum actual token spend remains $3.10/month).
 - Pro: $10/month, reasoning access, 1,000,000 included tokens/month, then $0.00001/token. Customers can upgrade from Free in the chatbot.
-- Enterprise: the same initial entitlement set as Pro, assigned only by sales in Unprice. Sales also configures any required credit line there.
+- Enterprise: Pro access plus artifact tools for creating, updating, and improving generated documents. Sales assigns Enterprise customers in Unprice and configures any required credit line there.
 
 Registration always provisions the published Free plan. The chatbot can upgrade Free customers to Pro. Sales upgrades Free customers to Enterprise in Unprice; the next access check unlocks their Enterprise features.
+
+The chatbot checks Unprice feature slugs, never plan names, when it grants runtime capabilities:
+
+| Feature slug | Free | Pro | Enterprise |
+| --- | --- | --- | --- |
+| `total-tokens` | ✓ | ✓ | ✓ |
+| `reasoning-model` | — | ✓ | ✓ |
+| `artifact-tools` | — | — | ✓ |
 
 Run `pnpm db:migrate` after pulling this integration. Registered users store their Unprice customer ID in the `User` row; guest sessions remain local and are not provisioned.
 

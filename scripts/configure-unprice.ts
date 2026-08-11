@@ -19,6 +19,12 @@ const request = {
     ],
     features: [
       {
+        slug: unpriceCatalog.features.artifactTools,
+        title: 'Artifact tools',
+        description: 'Create, update, and improve generated documents',
+        unitOfMeasure: 'access',
+      },
+      {
         slug: unpriceCatalog.features.reasoningModel,
         title: 'Reasoning model',
         description: 'Access to the advanced reasoning model',
@@ -129,6 +135,11 @@ const request = {
               featureSlug: unpriceCatalog.features.reasoningModel,
               featureType: 'flat',
               config: { price: '10.00' },
+            },
+            {
+              featureSlug: unpriceCatalog.features.artifactTools,
+              featureType: 'flat',
+              config: { price: '0.00' },
             },
             {
               featureSlug: unpriceCatalog.features.totalTokens,

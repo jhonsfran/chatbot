@@ -221,6 +221,16 @@ export async function checkReasoningModelAccess(customerId: string) {
   );
 }
 
+export async function checkArtifactToolsAccess(customerId: string) {
+  return unwrap(
+    'access.check',
+    await (await getRuntimeClient()).access.check({
+      customerId,
+      featureSlug: unpriceCatalog.features.artifactTools,
+    }),
+  );
+}
+
 export async function checkTotalTokenAccess(customerId: string) {
   return unwrap(
     'access.check',

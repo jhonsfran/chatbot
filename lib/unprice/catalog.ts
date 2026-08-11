@@ -3,6 +3,7 @@ export const unpriceCatalog = {
     aiCompletion: 'ai_completion',
   },
   features: {
+    artifactTools: 'artifact-tools',
     reasoningModel: 'reasoning-model',
     totalTokens: 'total-tokens',
   },

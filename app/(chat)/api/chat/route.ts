@@ -36,6 +36,7 @@ import type { Chat } from '@/lib/db/schema';
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
 import {
+  checkArtifactToolsAccess,
   checkReasoningModelAccess,
   checkTotalTokenAccess,
   consumeChatBudgetTokens,
@@ -127,13 +128,15 @@ export async function POST(request: Request) {
 
     const unpriceCustomerId = registeredUser.unpriceCustomerId;
 
-    const [tokenAccess, modelAccess, previousMessages] = await Promise.all([
-      checkTotalTokenAccess(unpriceCustomerId),
-      selectedChatModel === 'chat-model-reasoning'
-        ? checkReasoningModelAccess(unpriceCustomerId)
-        : Promise.resolve(null),
-      getMessagesByChatId({ id }),
-    ]);
+    const [tokenAccess, modelAccess, artifactToolsAccess, previousMessages] =
+      await Promise.all([
+        checkTotalTokenAccess(unpriceCustomerId),
+        selectedChatModel === 'chat-model-reasoning'
+          ? checkReasoningModelAccess(unpriceCustomerId)
+          : Promise.resolve(null),
+        checkArtifactToolsAccess(unpriceCustomerId),
+        getMessagesByChatId({ id }),
+      ]);
 
     if (!tokenAccess.allowed) {
       return new ChatSDKError(
@@ -211,6 +214,21 @@ export async function POST(request: Request) {
     const streamId = generateUUID();
     await createStreamId({ streamId, chatId: id });
 
+    const activeTools: Array<
+      'getWeather' | 'createDocument' | 'updateDocument' | 'requestSuggestions'
+    > = selectedChatModel === 'chat-model-reasoning' ? [] : ['getWeather'];
+
+    if (
+      selectedChatModel !== 'chat-model-reasoning' &&
+      artifactToolsAccess.allowed
+    ) {
+      activeTools.push(
+        'createDocument',
+        'updateDocument',
+        'requestSuggestions',
+      );
+    }
+
     const stream = createDataStream({
       execute: (dataStream) => {
         const result = streamText({
@@ -218,15 +236,7 @@ export async function POST(request: Request) {
           system: systemPrompt({ selectedChatModel, requestHints }),
           messages,
           maxSteps: 5,
-          experimental_activeTools:
-            selectedChatModel === 'chat-model-reasoning'
-              ? []
-              : [
-                  'getWeather',
-                  'createDocument',
-                  'updateDocument',
-                  'requestSuggestions',
-                ],
+          experimental_activeTools: activeTools,
           experimental_transform: smoothStream({ chunking: 'word' }),
           experimental_generateMessageId: generateUUID,
           tools: {
