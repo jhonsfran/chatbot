@@ -9,5 +9,6 @@ export const unpriceCatalog = {
   plans: {
     free: 'free',
     pro: 'pro',
+    enterprise: 'enterprise',
   },
 } as const;

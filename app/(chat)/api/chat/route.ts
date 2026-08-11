@@ -76,6 +76,23 @@ function getStreamContext() {
 }
 
 export async function POST(request: Request) {
+  let unpriceRunId: string | undefined;
+  let budgetRunFinalized = false;
+
+  const finalizeBudgetRun = async (status: 'completed' | 'failed') => {
+    if (!unpriceRunId || budgetRunFinalized) {
+      return;
+    }
+
+    budgetRunFinalized = true;
+
+    try {
+      await endChatBudgetRun({ runId: unpriceRunId, status });
+    } catch (error) {
+      logUnpriceError('Failed to close chat budget run', error);
+    }
+  };
+
   let requestBody: PostRequestBody;
 
   try {
@@ -143,14 +160,18 @@ export async function POST(request: Request) {
       messageId: message.id,
     });
 
+    unpriceRunId = budgetRun.runId;
+
     if (budgetRun.status !== 'running' || budgetRun.remainingAmountMinor <= 0) {
+      if (budgetRun.status === 'running') {
+        await finalizeBudgetRun('failed');
+      }
+
       return new ChatSDKError(
         'rate_limit:billing',
         'BUDGET_EXCEEDED',
       ).toResponse();
     }
-
-    const unpriceRunId = budgetRun.runId;
 
     if (!chat) {
       const title = await generateTitleFromUserMessage({
@@ -269,15 +290,20 @@ export async function POST(request: Request) {
                 }
 
                 if (consumption.run.status === 'running') {
-                  await endChatBudgetRun({
-                    runId: unpriceRunId,
-                    status: consumption.accepted ? 'completed' : 'failed',
-                  });
+                  await finalizeBudgetRun(
+                    consumption.accepted ? 'completed' : 'failed',
+                  );
+                } else {
+                  budgetRunFinalized = true;
                 }
               } catch (error) {
                 logUnpriceError('Failed to consume chat budget', error);
+                await finalizeBudgetRun('failed');
               }
             }
+          },
+          onError: async () => {
+            await finalizeBudgetRun('failed');
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
@@ -306,6 +332,8 @@ export async function POST(request: Request) {
       return new Response(stream);
     }
   } catch (error) {
+    await finalizeBudgetRun('failed');
+
     if (error instanceof ChatSDKError) {
       return error.toResponse();
     }

@@ -110,6 +110,56 @@ const request = {
           ],
         },
       },
+      {
+        slug: unpriceCatalog.plans.enterprise,
+        title: 'Enterprise',
+        description:
+          'Advanced reasoning and included token usage for sales-managed customers',
+        defaultPlan: false,
+        version: {
+          currency: 'USD',
+          paymentProvider: 'sandbox',
+          billingConfig: {
+            name: 'monthly',
+            interval: 'month',
+            intervalCount: 1,
+          },
+          features: [
+            {
+              featureSlug: unpriceCatalog.features.reasoningModel,
+              featureType: 'flat',
+              config: { price: '10.00' },
+            },
+            {
+              featureSlug: unpriceCatalog.features.totalTokens,
+              featureType: 'usage',
+              config: {
+                usageMode: 'tier',
+                tierMode: 'graduated',
+                tiers: [
+                  {
+                    firstUnit: 1,
+                    lastUnit: 1_000_000,
+                    unitPrice: '0.00',
+                    flatPrice: '0.00',
+                  },
+                  {
+                    firstUnit: 1_000_001,
+                    lastUnit: null,
+                    unitPrice: '0.00001',
+                    flatPrice: '0.00',
+                  },
+                ],
+              },
+              meterConfig: {
+                eventSlug: unpriceCatalog.events.aiCompletion,
+                aggregationMethod: 'sum',
+                aggregationField: 'total_tokens',
+              },
+            },
+          ],
+        },
+      },
     ],
   },
 } satisfies ApplyRequest;

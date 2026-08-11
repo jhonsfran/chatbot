@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSWRConfig } from 'swr';
 
 import { toast } from '@/components/toast';
 
@@ -26,7 +25,6 @@ export function UpgradePromptProvider({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { mutate } = useSWRConfig();
   const [isUpgradePromptOpen, setUpgradePromptOpen] = useState(false);
   const [isUpgradeCardVisible, setUpgradeCardVisible] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -67,7 +65,6 @@ export function UpgradePromptProvider({
 
       if (result.status === 'changed') {
         dismissUpgradeReminder();
-        await mutate('/api/billing/usage');
         toast({
           type: 'success',
           description: 'Pro is active. You can continue chatting.',
