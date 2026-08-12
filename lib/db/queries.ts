@@ -9,7 +9,9 @@ import {
   gt,
   gte,
   inArray,
+  isNull,
   lt,
+  or,
   type SQL,
 } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -115,7 +117,12 @@ export async function setUserUnpriceCustomerId({
   try {
     const [updatedUser] = await db
       .update(user)
-      .set({ unpriceCustomerId })
+      .set({
+        unpriceCustomerId,
+        unpriceProvisioningStatus: 'ready',
+        unpriceProvisioningError: null,
+        unpriceProvisioningStartedAt: null,
+      })
       .where(eq(user.id, id))
       .returning();
 
@@ -128,6 +135,89 @@ export async function setUserUnpriceCustomerId({
     throw new ChatSDKError(
       'bad_request:database',
       'Failed to attach Unprice customer to user',
+    );
+  }
+}
+
+const PROVISIONING_STALE_AFTER_MS = 2 * 60 * 1000;
+
+export async function claimUserUnpriceProvisioning({
+  id,
+}: {
+  id: string;
+}): Promise<User | undefined> {
+  const staleBefore = new Date(Date.now() - PROVISIONING_STALE_AFTER_MS);
+
+  try {
+    const [claimedUser] = await db
+      .update(user)
+      .set({
+        unpriceProvisioningStatus: 'provisioning',
+        unpriceProvisioningError: null,
+        unpriceProvisioningStartedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(user.id, id),
+          isNull(user.unpriceCustomerId),
+          or(
+            inArray(user.unpriceProvisioningStatus, ['pending', 'failed']),
+            and(
+              eq(user.unpriceProvisioningStatus, 'provisioning'),
+              or(
+                isNull(user.unpriceProvisioningStartedAt),
+                lt(user.unpriceProvisioningStartedAt, staleBefore),
+              ),
+            ),
+          ),
+        ),
+      )
+      .returning();
+
+    return claimedUser;
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to claim Unprice provisioning',
+    );
+  }
+}
+
+export async function completeUserUnpriceProvisioning({
+  id,
+  unpriceCustomerId,
+}: {
+  id: string;
+  unpriceCustomerId: string;
+}) {
+  return setUserUnpriceCustomerId({ id, unpriceCustomerId });
+}
+
+export async function failUserUnpriceProvisioning({
+  id,
+  message,
+}: {
+  id: string;
+  message: string;
+}) {
+  try {
+    await db
+      .update(user)
+      .set({
+        unpriceProvisioningStatus: 'failed',
+        unpriceProvisioningError: message.slice(0, 160),
+        unpriceProvisioningStartedAt: null,
+      })
+      .where(
+        and(
+          eq(user.id, id),
+          eq(user.unpriceProvisioningStatus, 'provisioning'),
+        ),
+      );
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to record Unprice provisioning failure',
     );
   }
 }
@@ -153,6 +243,23 @@ export async function saveChat({
     });
   } catch (error) {
     throw new ChatSDKError('bad_request:database', 'Failed to save chat');
+  }
+}
+
+export async function updateChatTitleById({
+  chatId,
+  title,
+}: {
+  chatId: string;
+  title: string;
+}) {
+  try {
+    return await db.update(chat).set({ title }).where(eq(chat.id, chatId));
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to update chat title by id',
+    );
   }
 }
 

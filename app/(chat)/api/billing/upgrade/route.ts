@@ -8,6 +8,7 @@ import {
   UnpriceRuntimeError,
   upgradeCustomerToPro,
 } from '@/lib/unprice/runtime';
+import { invalidateEntitlementCache } from '@/lib/unprice/billing-profile';
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
     );
 
     if (outcome.status === 'changed') {
+      invalidateEntitlementCache(registeredUser.unpriceCustomerId);
       return Response.json(outcome);
     }
 

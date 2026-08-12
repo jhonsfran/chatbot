@@ -1,10 +1,8 @@
 import 'server-only';
 
 import { getUserById } from '@/lib/db/queries';
-import {
-  checkReasoningModelAccess,
-  logUnpriceError,
-} from '@/lib/unprice/runtime';
+import { logUnpriceError } from '@/lib/unprice/runtime';
+import { getFlatEntitlements } from '@/lib/unprice/billing-profile';
 import type { PlanAccessStatus } from './models';
 
 export interface ModelAvailability {
@@ -27,12 +25,12 @@ export async function getModelAvailability({
   }
 
   try {
-    const reasoningAccess = await checkReasoningModelAccess(
+    const entitlements = await getFlatEntitlements(
       registeredUser.unpriceCustomerId,
     );
 
     return {
-      availableChatModelIds: reasoningAccess.allowed
+      availableChatModelIds: entitlements.canUseReasoning
         ? ['chat-model', 'chat-model-reasoning']
         : ['chat-model'],
       planAccessStatus: 'ready',

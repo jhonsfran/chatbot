@@ -50,7 +50,7 @@ export const {
 
         const passwordsMatch = await compare(password, user.password);
 
-        if (!passwordsMatch || !user.unpriceCustomerId) return null;
+        if (!passwordsMatch) return null;
 
         return { ...user, type: 'regular' };
       },

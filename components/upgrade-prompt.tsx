@@ -1,16 +1,27 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useRouter } from 'next/navigation';
+import { useSWRConfig } from 'swr';
 
 import { toast } from '@/components/toast';
+import { BILLING_PROFILE_KEY } from '@/hooks/use-billing-profile';
 
 type UpgradePromptContextValue = {
   isUpgradePromptOpen: boolean;
   isUpgradeCardVisible: boolean;
+  isLimitPrompt: boolean;
   isUpgrading: boolean;
-  showUpgradePrompt: () => void;
-  hideUpgradePrompt: () => void;
+  showPlanDialog: () => void;
+  showLimitPrompt: () => void;
+  hidePlanDialog: () => void;
   dismissUpgradeReminder: () => void;
   startUpgrade: () => Promise<void>;
 };
@@ -25,23 +36,31 @@ export function UpgradePromptProvider({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const { mutate } = useSWRConfig();
   const [isUpgradePromptOpen, setUpgradePromptOpen] = useState(false);
   const [isUpgradeCardVisible, setUpgradeCardVisible] = useState(false);
+  const [isLimitPrompt, setIsLimitPrompt] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
 
-  const showUpgradePrompt = () => {
+  const showPlanDialog = useCallback(() => {
+    setIsLimitPrompt(false);
+    setUpgradePromptOpen(true);
+  }, []);
+
+  const showLimitPrompt = useCallback(() => {
+    setIsLimitPrompt(true);
     setUpgradeCardVisible(true);
     setUpgradePromptOpen(true);
-  };
+  }, []);
 
-  const hideUpgradePrompt = () => setUpgradePromptOpen(false);
+  const hidePlanDialog = useCallback(() => setUpgradePromptOpen(false), []);
 
-  const dismissUpgradeReminder = () => {
+  const dismissUpgradeReminder = useCallback(() => {
     setUpgradePromptOpen(false);
     setUpgradeCardVisible(false);
-  };
+  }, []);
 
-  const startUpgrade = async () => {
+  const startUpgrade = useCallback(async () => {
     setIsUpgrading(true);
 
     try {
@@ -65,6 +84,7 @@ export function UpgradePromptProvider({
 
       if (result.status === 'changed') {
         dismissUpgradeReminder();
+        await mutate(BILLING_PROFILE_KEY);
         toast({
           type: 'success',
           description: 'Pro is active. You can continue chatting.',
@@ -85,7 +105,7 @@ export function UpgradePromptProvider({
     } finally {
       setIsUpgrading(false);
     }
-  };
+  }, [dismissUpgradeReminder, mutate, router]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -94,23 +114,38 @@ export function UpgradePromptProvider({
       return;
     }
 
-    showUpgradePrompt();
+    showPlanDialog();
     url.searchParams.delete('upgrade');
     window.history.replaceState({}, '', url);
-  }, []);
+  }, [showPlanDialog]);
+
+  const value = useMemo(
+    () => ({
+      isUpgradePromptOpen,
+      isUpgradeCardVisible,
+      isLimitPrompt,
+      isUpgrading,
+      showPlanDialog,
+      showLimitPrompt,
+      hidePlanDialog,
+      dismissUpgradeReminder,
+      startUpgrade,
+    }),
+    [
+      dismissUpgradeReminder,
+      hidePlanDialog,
+      isLimitPrompt,
+      isUpgradeCardVisible,
+      isUpgradePromptOpen,
+      isUpgrading,
+      showLimitPrompt,
+      showPlanDialog,
+      startUpgrade,
+    ],
+  );
 
   return (
-    <UpgradePromptContext.Provider
-      value={{
-        isUpgradePromptOpen,
-        isUpgradeCardVisible,
-        isUpgrading,
-        showUpgradePrompt,
-        hideUpgradePrompt,
-        dismissUpgradeReminder,
-        startUpgrade,
-      }}
-    >
+    <UpgradePromptContext.Provider value={value}>
       {children}
     </UpgradePromptContext.Provider>
   );

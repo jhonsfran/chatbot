@@ -16,6 +16,15 @@ export const user = pgTable('User', {
   email: varchar('email', { length: 64 }).notNull().unique(),
   password: varchar('password', { length: 64 }),
   unpriceCustomerId: varchar('unpriceCustomerId', { length: 64 }).unique(),
+  unpriceProvisioningStatus: varchar('unpriceProvisioningStatus', {
+    enum: ['pending', 'provisioning', 'ready', 'failed'],
+  })
+    .notNull()
+    .default('pending'),
+  unpriceProvisioningError: varchar('unpriceProvisioningError', {
+    length: 160,
+  }),
+  unpriceProvisioningStartedAt: timestamp('unpriceProvisioningStartedAt'),
 });
 
 export type User = InferSelectModel<typeof user>;

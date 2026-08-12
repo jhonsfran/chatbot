@@ -16,6 +16,7 @@ import {
   getUserById,
   saveChat,
   saveMessages,
+  updateChatTitleById,
 } from '@/lib/db/queries';
 import { generateUUID, getTrailingMessageId } from '@/lib/utils';
 import { generateTitleFromUserMessage } from '../../actions';
@@ -36,8 +37,6 @@ import type { Chat } from '@/lib/db/schema';
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
 import {
-  checkArtifactToolsAccess,
-  checkReasoningModelAccess,
   checkTotalTokenAccess,
   consumeChatBudgetTokens,
   endChatBudgetRun,
@@ -45,6 +44,8 @@ import {
   startChatBudgetRun,
   UnpriceRuntimeError,
 } from '@/lib/unprice/runtime';
+import { getFlatEntitlements } from '@/lib/unprice/billing-profile';
+import { getInitialChatTitle } from '@/lib/ai/chat-title';
 
 export const maxDuration = 60;
 
@@ -53,6 +54,14 @@ const budgetRejectionCodes = new Set([
   'RUN_BUDGET_EXCEEDED',
   'WALLET_EMPTY',
 ]);
+
+function getFulfilledValue<T>(result: PromiseSettledResult<T>): T {
+  if (result.status === 'rejected') {
+    throw result.reason;
+  }
+
+  return result.value;
+}
 
 let globalStreamContext: ResumableStreamContext | null = null;
 
@@ -113,9 +122,10 @@ export async function POST(request: Request) {
       return new ChatSDKError('unauthorized:chat').toResponse();
     }
 
-    const [chat, registeredUser] = await Promise.all([
+    const [chat, registeredUser, previousMessages] = await Promise.all([
       getChatById({ id }),
       getUserById(session.user.id),
+      getMessagesByChatId({ id }),
     ]);
 
     if (chat && chat.userId !== session.user.id) {
@@ -123,32 +133,68 @@ export async function POST(request: Request) {
     }
 
     if (!registeredUser?.unpriceCustomerId) {
-      return new ChatSDKError('service_unavailable:billing').toResponse();
+      return new ChatSDKError(
+        'service_unavailable:billing',
+        'BILLING_SETUP_PENDING',
+      ).toResponse();
     }
 
     const unpriceCustomerId = registeredUser.unpriceCustomerId;
+    const billingResults = await Promise.allSettled([
+      checkTotalTokenAccess(unpriceCustomerId),
+      getFlatEntitlements(unpriceCustomerId),
+      startChatBudgetRun({
+        customerId: unpriceCustomerId,
+        chatId: id,
+        messageId: message.id,
+      }),
+    ] as const);
+    const budgetResult = billingResults[2];
 
-    const [tokenAccess, modelAccess, artifactToolsAccess, previousMessages] =
-      await Promise.all([
-        checkTotalTokenAccess(unpriceCustomerId),
-        selectedChatModel === 'chat-model-reasoning'
-          ? checkReasoningModelAccess(unpriceCustomerId)
-          : Promise.resolve(null),
-        checkArtifactToolsAccess(unpriceCustomerId),
-        getMessagesByChatId({ id }),
-      ]);
+    if (budgetResult.status === 'fulfilled') {
+      unpriceRunId = budgetResult.value.runId;
+    }
+
+    const failedBillingResult = billingResults.find(
+      (result) => result.status === 'rejected',
+    );
+
+    if (failedBillingResult?.status === 'rejected') {
+      await finalizeBudgetRun('failed');
+      throw failedBillingResult.reason;
+    }
+
+    const tokenAccess = getFulfilledValue(billingResults[0]);
+    const entitlements = getFulfilledValue(billingResults[1]);
+    const budgetRun = getFulfilledValue(billingResults[2]);
 
     if (!tokenAccess.allowed) {
+      await finalizeBudgetRun('failed');
       return new ChatSDKError(
         'rate_limit:billing',
         tokenAccess.rejectionReason,
       ).toResponse();
     }
 
-    if (modelAccess && !modelAccess.allowed) {
+    if (
+      selectedChatModel === 'chat-model-reasoning' &&
+      !entitlements.canUseReasoning
+    ) {
+      await finalizeBudgetRun('failed');
       return new ChatSDKError(
         'forbidden:billing',
-        modelAccess.rejectionReason,
+        'REASONING_MODEL_REQUIRED',
+      ).toResponse();
+    }
+
+    if (
+      selectedVisibilityType === 'public' &&
+      !entitlements.canSharePublicChats
+    ) {
+      await finalizeBudgetRun('failed');
+      return new ChatSDKError(
+        'forbidden:billing',
+        'PUBLIC_SHARING_REQUIRED',
       ).toResponse();
     }
 
@@ -157,17 +203,11 @@ export async function POST(request: Request) {
       messages: previousMessages,
       message,
     });
-    const budgetRun = await startChatBudgetRun({
-      customerId: unpriceCustomerId,
-      chatId: id,
-      messageId: message.id,
-    });
-
-    unpriceRunId = budgetRun.runId;
-
     if (budgetRun.status !== 'running' || budgetRun.remainingAmountMinor <= 0) {
       if (budgetRun.status === 'running') {
         await finalizeBudgetRun('failed');
+      } else {
+        budgetRunFinalized = true;
       }
 
       return new ChatSDKError(
@@ -177,15 +217,20 @@ export async function POST(request: Request) {
     }
 
     if (!chat) {
-      const title = await generateTitleFromUserMessage({
-        message,
-      });
-
       await saveChat({
         id,
         userId: session.user.id,
-        title,
+        title: getInitialChatTitle(message),
         visibility: selectedVisibilityType,
+      });
+
+      after(async () => {
+        try {
+          const title = await generateTitleFromUserMessage({ message });
+          await updateChatTitleById({ chatId: id, title });
+        } catch (error) {
+          console.error('Failed to improve chat title', error);
+        }
       });
     }
 
@@ -220,7 +265,7 @@ export async function POST(request: Request) {
 
     if (
       selectedChatModel !== 'chat-model-reasoning' &&
-      artifactToolsAccess.allowed
+      entitlements.canUseArtifacts
     ) {
       activeTools.push(
         'createDocument',

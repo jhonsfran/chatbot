@@ -25,6 +25,12 @@ const request = {
         unitOfMeasure: 'access',
       },
       {
+        slug: unpriceCatalog.features.publicChatSharing,
+        title: 'Public chat sharing',
+        description: 'Share a chat through a public link',
+        unitOfMeasure: 'access',
+      },
+      {
         slug: unpriceCatalog.features.reasoningModel,
         title: 'Reasoning model',
         description: 'Access to the advanced reasoning model',
@@ -47,9 +53,9 @@ const request = {
           currency: 'USD',
           paymentProvider: 'sandbox',
           billingConfig: {
-            name: 'monthly',
-            interval: 'month',
-            intervalCount: 1,
+            name: 'demo-15-minute',
+            interval: 'minute',
+            intervalCount: 15,
           },
           features: [
             {
@@ -62,7 +68,7 @@ const request = {
                 aggregationField: 'total_tokens',
               },
               limit: 10_000,
-              resetConfig: { interval: 'day' },
+              resetConfig: { interval: 'minute', intervalCount: 5 },
             },
           ],
         },
@@ -76,9 +82,9 @@ const request = {
           currency: 'USD',
           paymentProvider: 'sandbox',
           billingConfig: {
-            name: 'monthly',
-            interval: 'month',
-            intervalCount: 1,
+            name: 'demo-15-minute',
+            interval: 'minute',
+            intervalCount: 15,
           },
           features: [
             {
@@ -112,6 +118,7 @@ const request = {
                 aggregationMethod: 'sum',
                 aggregationField: 'total_tokens',
               },
+              resetConfig: { interval: 'minute', intervalCount: 5 },
             },
           ],
         },
@@ -126,9 +133,9 @@ const request = {
           currency: 'USD',
           paymentProvider: 'sandbox',
           billingConfig: {
-            name: 'monthly',
-            interval: 'month',
-            intervalCount: 1,
+            name: 'demo-15-minute',
+            interval: 'minute',
+            intervalCount: 15,
           },
           features: [
             {
@@ -138,6 +145,11 @@ const request = {
             },
             {
               featureSlug: unpriceCatalog.features.artifactTools,
+              featureType: 'flat',
+              config: { price: '0.00' },
+            },
+            {
+              featureSlug: unpriceCatalog.features.publicChatSharing,
               featureType: 'flat',
               config: { price: '0.00' },
             },
@@ -167,6 +179,7 @@ const request = {
                 aggregationMethod: 'sum',
                 aggregationField: 'total_tokens',
               },
+              resetConfig: { interval: 'minute', intervalCount: 5 },
             },
           ],
         },

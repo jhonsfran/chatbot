@@ -9,6 +9,7 @@ import {
   type ChatHistory,
 } from '@/components/sidebar-history';
 import type { VisibilityType } from '@/components/visibility-selector';
+import { toast } from '@/components/toast';
 
 export function useChatVisibility({
   chatId,
@@ -35,14 +36,21 @@ export function useChatVisibility({
     return chat.visibility;
   }, [history, chatId, localVisibility]);
 
-  const setVisibilityType = (updatedVisibilityType: VisibilityType) => {
-    setLocalVisibility(updatedVisibilityType);
-    mutate(unstable_serialize(getChatHistoryPaginationKey));
+  const setVisibilityType = async (updatedVisibilityType: VisibilityType) => {
+    const previousVisibilityType = visibilityType;
+    await setLocalVisibility(updatedVisibilityType, { revalidate: false });
+    await mutate(unstable_serialize(getChatHistoryPaginationKey));
 
-    updateChatVisibility({
+    const result = await updateChatVisibility({
       chatId: chatId,
       visibility: updatedVisibilityType,
     });
+
+    if (!result.success) {
+      await setLocalVisibility(previousVisibilityType, { revalidate: false });
+      await mutate(unstable_serialize(getChatHistoryPaginationKey));
+      toast({ type: 'error', description: result.message });
+    }
   };
 
   return { visibilityType, setVisibilityType };

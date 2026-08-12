@@ -16,6 +16,8 @@ import {
   LockIcon,
 } from './icons';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
+import { useBillingProfile } from '@/hooks/use-billing-profile';
+import { useUpgradePrompt } from './upgrade-prompt';
 
 export type VisibilityType = 'private' | 'public';
 
@@ -48,6 +50,9 @@ export function VisibilitySelector({
   selectedVisibilityType: VisibilityType;
 } & React.ComponentProps<typeof Button>) {
   const [open, setOpen] = useState(false);
+  const { profile } = useBillingProfile();
+  const { showPlanDialog } = useUpgradePrompt();
+  const isPublicSharingLocked = profile?.canSharePublicChats !== true;
 
   const { visibilityType, setVisibilityType } = useChatVisibility({
     chatId,
@@ -85,14 +90,27 @@ export function VisibilitySelector({
             data-testid={`visibility-selector-item-${visibility.id}`}
             key={visibility.id}
             onSelect={() => {
-              setVisibilityType(visibility.id);
+              if (visibility.id === 'public' && isPublicSharingLocked) {
+                showPlanDialog();
+                setOpen(false);
+                return;
+              }
+
+              void setVisibilityType(visibility.id);
               setOpen(false);
             }}
             className="gap-4 group/item flex flex-row justify-between items-center"
             data-active={visibility.id === visibilityType}
           >
             <div className="flex flex-col gap-1 items-start">
-              {visibility.label}
+              <span className="flex items-center gap-2">
+                {visibility.label}
+                {visibility.id === 'public' && isPublicSharingLocked && (
+                  <span className="rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-muted-foreground">
+                    Enterprise
+                  </span>
+                )}
+              </span>
               {visibility.description && (
                 <div className="text-xs text-muted-foreground">
                   {visibility.description}

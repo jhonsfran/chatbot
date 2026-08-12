@@ -34,10 +34,9 @@ type CustomerPlanChangeResult = z.infer<typeof customerPlanChangeResultSchema>;
 let runtimeClient: Unprice | undefined;
 
 const CHAT_CONVERSATION_BUDGET_MINOR = 10;
-// $3.10 covers 31 daily $0.10 token budgets; $0.20 permits the two
-// additional simultaneous chat holds allowed by the three-message daily cap.
-const FREE_MONTHLY_CREDIT_LINE_MINOR = 330;
-const PRO_MONTHLY_CREDIT_LINE_MINOR = 1_000;
+// The sandbox credit lines leave room for concurrent $0.10 chat reservations.
+const FREE_CREDIT_LINE_MINOR = 330;
+const PRO_CREDIT_LINE_MINOR = 1_000;
 
 export class UnpriceRuntimeError extends Error {
   constructor(
@@ -195,7 +194,7 @@ export async function provisionUnpriceCustomer({
     cancelUrl: `${applicationBaseUrl}/register`,
     planSlug: unpriceCatalog.plans.free,
     creditLinePolicy: 'capped' as const,
-    creditLineAmountMinor: FREE_MONTHLY_CREDIT_LINE_MINOR,
+    creditLineAmountMinor: FREE_CREDIT_LINE_MINOR,
   });
   const result = unwrap('customers.signUp', response);
 
@@ -231,6 +230,16 @@ export async function checkArtifactToolsAccess(customerId: string) {
   );
 }
 
+export async function checkPublicChatSharingAccess(customerId: string) {
+  return unwrap(
+    'access.check',
+    await (await getRuntimeClient()).access.check({
+      customerId,
+      featureSlug: unpriceCatalog.features.publicChatSharing,
+    }),
+  );
+}
+
 export async function checkTotalTokenAccess(customerId: string) {
   return unwrap(
     'access.check',
@@ -238,6 +247,13 @@ export async function checkTotalTokenAccess(customerId: string) {
       customerId,
       featureSlug: unpriceCatalog.features.totalTokens,
     }),
+  );
+}
+
+export async function getCustomerSubscription(customerId: string) {
+  return unwrap(
+    'subscriptions.get',
+    await (await getRuntimeClient()).subscriptions.get({ customerId }),
   );
 }
 
@@ -277,7 +293,7 @@ export async function upgradeCustomerToPro(customerId: string) {
       customerId,
       planVersionId,
       creditLinePolicy: 'capped',
-      creditLineAmountMinor: PRO_MONTHLY_CREDIT_LINE_MINOR,
+      creditLineAmountMinor: PRO_CREDIT_LINE_MINOR,
     },
   );
   const parsed = customerPlanChangeResultSchema.safeParse(result);

@@ -2,19 +2,17 @@
 
 import { z } from 'zod';
 import { headers } from 'next/headers';
+import { after } from 'next/server';
 import { compare } from 'bcrypt-ts';
 
-import {
-  findOrCreatePendingUser,
-  setUserUnpriceCustomerId,
-} from '@/lib/db/queries';
+import { findOrCreatePendingUser } from '@/lib/db/queries';
 import { generateUUID } from '@/lib/utils';
 import {
   getApplicationBaseUrl,
   logUnpriceError,
-  provisionUnpriceCustomer,
   UnpriceRuntimeError,
 } from '@/lib/unprice/runtime';
+import { provisionRegisteredUser } from '@/lib/unprice/provisioning';
 
 import { signIn } from './auth';
 
@@ -88,20 +86,22 @@ export const register = async (
       return { status: 'user_exists' } as RegisterActionState;
     }
     const requestHeaders = await headers();
-    const unpriceCustomerId = await provisionUnpriceCustomer({
-      userId: user.id,
-      email: validatedData.email,
-      applicationBaseUrl: getApplicationBaseUrl(requestHeaders),
-    });
-
-    await setUserUnpriceCustomerId({
-      id: user.id,
-      unpriceCustomerId,
-    });
+    const applicationBaseUrl = getApplicationBaseUrl(requestHeaders);
     await signIn('credentials', {
       email: validatedData.email,
       password: validatedData.password,
       redirect: false,
+    });
+
+    after(async () => {
+      try {
+        await provisionRegisteredUser({
+          userId: user.id,
+          applicationBaseUrl,
+        });
+      } catch (error) {
+        logUnpriceError('Background customer provisioning failed', error);
+      }
     });
 
     return { status: 'success' };

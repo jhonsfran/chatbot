@@ -64,6 +64,13 @@
       "when": 1785674125110,
       "tag": "0008_solid_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786484584863,
+      "tag": "0009_bitter_sprite",
+      "breakpoints": true
     }
   ]
 }

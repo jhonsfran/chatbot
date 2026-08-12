@@ -51,7 +51,7 @@ export class ChatSDKError extends Error {
     this.type = type as ErrorType;
     this.cause = cause;
     this.surface = surface as Surface;
-    this.message = getMessageByErrorCode(errorCode);
+    this.message = getMessageByErrorCode(errorCode, cause);
     this.statusCode = getStatusCodeByType(this.type);
   }
 
@@ -78,7 +78,22 @@ export class ChatSDKError extends Error {
   }
 }
 
-export function getMessageByErrorCode(errorCode: ErrorCode): string {
+export function getMessageByErrorCode(
+  errorCode: ErrorCode,
+  cause?: string,
+): string {
+  if (cause === 'BILLING_SETUP_PENDING') {
+    return 'Billing setup is still in progress. Try again in a moment.';
+  }
+
+  if (cause === 'PUBLIC_SHARING_REQUIRED') {
+    return 'Public chat sharing requires an Enterprise plan.';
+  }
+
+  if (cause === 'REASONING_MODEL_REQUIRED') {
+    return 'Your current plan does not include the reasoning model.';
+  }
+
   if (errorCode.includes('database')) {
     return 'An error occurred while executing a database query.';
   }
