@@ -41,11 +41,13 @@ import {
   consumeChatBudgetTokens,
   endChatBudgetRun,
   logUnpriceError,
+  recordChatTokenEvidence,
   startChatBudgetRun,
   UnpriceRuntimeError,
 } from '@/lib/unprice/runtime';
 import { getFlatEntitlements } from '@/lib/unprice/billing-profile';
 import { getInitialChatTitle } from '@/lib/ai/chat-title';
+import { settleChatTokenUsage } from '@/lib/unprice/chat-settlement';
 
 export const maxDuration = 60;
 
@@ -94,10 +96,9 @@ export async function POST(request: Request) {
       return;
     }
 
-    budgetRunFinalized = true;
-
     try {
       await endChatBudgetRun({ runId: unpriceRunId, status });
+      budgetRunFinalized = true;
     } catch (error) {
       logUnpriceError('Failed to close chat budget run', error);
     }
@@ -331,28 +332,32 @@ export async function POST(request: Request) {
 
             if (unpriceCustomerId && unpriceRunId) {
               try {
-                const consumption = await consumeChatBudgetTokens({
-                  runId: unpriceRunId,
-                  customerId: unpriceCustomerId,
-                  chatId: id,
-                  messageId: message.id,
-                  inputTokens: usage.promptTokens,
-                  outputTokens: usage.completionTokens,
-                });
+                const settlement = await settleChatTokenUsage(
+                  {
+                    runId: unpriceRunId,
+                    customerId: unpriceCustomerId,
+                    chatId: id,
+                    messageId: message.id,
+                    inputTokens: usage.promptTokens,
+                    outputTokens: usage.completionTokens,
+                  },
+                  {
+                    consume: consumeChatBudgetTokens,
+                    recordEvidence: recordChatTokenEvidence,
+                  },
+                );
 
-                if (!consumption.accepted) {
+                if (settlement.limitReached) {
                   dataStream.writeData({ type: 'billing-limit-reached' });
                 }
 
-                if (consumption.run.status === 'running') {
-                  await finalizeBudgetRun(
-                    consumption.accepted ? 'completed' : 'failed',
-                  );
+                if (settlement.runIsRunning) {
+                  await finalizeBudgetRun(settlement.finalStatus);
                 } else {
                   budgetRunFinalized = true;
                 }
               } catch (error) {
-                logUnpriceError('Failed to consume chat budget', error);
+                logUnpriceError('Failed to settle chat usage', error);
                 await finalizeBudgetRun('failed');
               }
             }

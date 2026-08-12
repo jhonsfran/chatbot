@@ -4,6 +4,7 @@ import { Clock3, Gauge, RefreshCcw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { useBillingProfile } from '@/hooks/use-billing-profile';
+import { formatCountdown } from '@/lib/unprice/countdown';
 import { cn } from '@/lib/utils';
 import { Button } from './ui/button';
 import { Skeleton } from './ui/skeleton';
@@ -13,13 +14,6 @@ function formatTokens(value: number) {
     notation: value >= 10_000 ? 'compact' : 'standard',
     maximumFractionDigits: 1,
   }).format(value);
-}
-
-function formatCountdown(milliseconds: number) {
-  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 export function UsageCard({ onManagePlan }: { onManagePlan: () => void }) {

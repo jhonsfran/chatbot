@@ -89,6 +89,7 @@ export function Chat({
     onError: (error) => {
       if (error instanceof ChatSDKError) {
         if (error.type === 'rate_limit' && error.surface === 'billing') {
+          void mutate(BILLING_PROFILE_KEY);
           showLimitPrompt();
           return;
         }
@@ -125,9 +126,10 @@ export function Chat({
           part.type === 'billing-limit-reached',
       )
     ) {
+      void mutate(BILLING_PROFILE_KEY);
       showLimitPrompt();
     }
-  }, [data, showLimitPrompt]);
+  }, [data, mutate, showLimitPrompt]);
 
   useEffect(() => {
     if (query && !hasAppendedQuery) {

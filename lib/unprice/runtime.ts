@@ -257,14 +257,18 @@ export async function getCustomerSubscription(customerId: string) {
   );
 }
 
-async function getProPlanVersionId(): Promise<string> {
-  const result = unwrap(
+export async function listLatestPublishedPlanVersions() {
+  return unwrap(
     'planVersions.list',
     await (await getRuntimeClient()).planVersions.list({
       onlyPublished: true,
       onlyLatest: true,
     }),
   );
+}
+
+async function getProPlanVersionId(): Promise<string> {
+  const result = await listLatestPublishedPlanVersions();
   const proPlanVersion = result.planVersions.find(
     (planVersion) =>
       planVersion.plan.slug === unpriceCatalog.plans.pro &&
@@ -385,18 +389,12 @@ export async function endChatBudgetRun({
 
 export async function consumeChatBudgetTokens({
   runId,
-  customerId,
-  chatId,
-  messageId,
-  inputTokens,
-  outputTokens,
+  idempotencyKey,
+  totalTokens,
 }: {
   runId: string;
-  customerId: string;
-  chatId: string;
-  messageId: string;
-  inputTokens: number;
-  outputTokens: number;
+  idempotencyKey: string;
+  totalTokens: number;
 }) {
   return unwrap(
     'runs.consume',
@@ -404,13 +402,30 @@ export async function consumeChatBudgetTokens({
       runId,
       featureSlug: unpriceCatalog.features.totalTokens,
       eventSlug: unpriceCatalog.events.aiCompletion,
-      idempotencyKey: `chat:${customerId}:${chatId}:${messageId}:tokens`,
+      idempotencyKey,
       properties: {
-        total_tokens: Math.max(
-          0,
-          Math.trunc(inputTokens) + Math.trunc(outputTokens),
-        ),
+        total_tokens: totalTokens,
       },
+    }),
+  );
+}
+
+export async function recordChatTokenEvidence({
+  customerId,
+  idempotencyKey,
+  totalTokens,
+}: {
+  customerId: string;
+  idempotencyKey: string;
+  totalTokens: number;
+}) {
+  return unwrap(
+    'usage.record',
+    await (await getRuntimeClient()).usage.record({
+      customerId,
+      eventSlug: unpriceCatalog.events.aiCompletion,
+      idempotencyKey,
+      properties: { total_tokens: totalTokens },
     }),
   );
 }

@@ -5,6 +5,7 @@ import { Building2, LockKeyhole } from 'lucide-react';
 import { CheckCircleFillIcon, SparklesIcon } from '@/components/icons';
 import { useUpgradePrompt } from '@/components/upgrade-prompt';
 import { useBillingProfile } from '@/hooks/use-billing-profile';
+import { usePlanCatalog } from '@/hooks/use-plan-catalog';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -16,37 +17,29 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 
-const plans = [
-  {
-    id: 'free' as const,
-    name: 'Free',
-    price: '$0',
-    cadence: '',
-    description: 'Everyday chat with a five-minute usage window.',
-    benefits: ['10K tokens / 5 min', 'Standard chat model'],
-  },
-  {
-    id: 'pro' as const,
-    name: 'Pro',
-    price: '$10',
-    cadence: '/ 15 min',
-    description: 'More capacity for focused, reasoning-heavy work.',
-    benefits: ['1M included tokens / 5 min', 'Reasoning model'],
-  },
-  {
-    id: 'enterprise' as const,
-    name: 'Enterprise',
-    price: 'Sales',
-    cadence: 'managed',
-    description: 'A shared workspace with advanced creation tools.',
-    benefits: [
-      'Reasoning model',
-      'Artifact tools',
-      'Public chat sharing',
-    ],
-  },
-];
+function formatPrice(price: string, currency: 'USD' | 'EUR') {
+  const amount = Number(price);
+
+  if (!Number.isFinite(amount)) {
+    return price;
+  }
+
+  return new Intl.NumberFormat('en', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
+  }).format(amount);
+}
+
+function formatCadence(interval: string, count: number) {
+  if (interval === 'onetime') {
+    return 'one time';
+  }
+
+  return `/ ${count} ${interval}${count === 1 ? '' : 's'}`;
+}
 
 export function UpgradeDialog() {
   const {
@@ -57,6 +50,8 @@ export function UpgradeDialog() {
     startUpgrade,
   } = useUpgradePrompt();
   const { profile } = useBillingProfile();
+  const { plans, error, isLoading, refresh } =
+    usePlanCatalog(isUpgradePromptOpen);
 
   return (
     <AlertDialog
@@ -90,9 +85,48 @@ export function UpgradeDialog() {
         </AlertDialogHeader>
 
         <div className="grid gap-3 p-5 md:grid-cols-3">
-          {plans.map((plan) => {
-            const isCurrent = profile?.plan === plan.id;
-            const isEnterprise = plan.id === 'enterprise';
+          {isLoading && !plans
+            ? ['free', 'pro', 'enterprise'].map((slug) => (
+                <section
+                  className="flex min-h-64 flex-col rounded-xl border bg-muted/20 p-4"
+                  key={slug}
+                >
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="mt-3 h-6 w-28" />
+                  <Skeleton className="mt-5 h-4 w-full" />
+                  <Skeleton className="mt-2 h-4 w-4/5" />
+                  <Skeleton className="mt-6 h-16 w-full" />
+                </section>
+              ))
+            : null}
+
+          {error && !plans ? (
+            <div className="col-span-full rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-center">
+              <p className="text-sm font-medium">Plans are unavailable</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                The current Unprice catalog could not be loaded.
+              </p>
+              <Button
+                className="mt-4"
+                onClick={() => void refresh()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Try again
+              </Button>
+            </div>
+          ) : null}
+
+          {!isLoading && !error && plans?.length === 0 ? (
+            <p className="col-span-full p-5 text-center text-sm text-muted-foreground">
+              No supported plans are published.
+            </p>
+          ) : null}
+
+          {plans?.map((plan) => {
+            const isCurrent = profile?.plan === plan.slug;
+            const isEnterprise = plan.slug === 'enterprise';
 
             return (
               <section
@@ -100,18 +134,19 @@ export function UpgradeDialog() {
                   'flex min-h-64 flex-col rounded-xl border bg-muted/20 p-4',
                   isCurrent && 'border-foreground/40 bg-muted/45 shadow-sm',
                 )}
-                key={plan.id}
+                key={plan.planVersionId}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-semibold">{plan.name}</p>
+                    <p className="font-semibold">{plan.title}</p>
                     <p className="mt-1 flex items-baseline gap-1 font-mono text-lg font-semibold tabular-nums">
-                      {plan.price}
-                      {plan.cadence && (
-                        <span className="font-sans text-[10px] font-normal text-muted-foreground">
-                          {plan.cadence}
-                        </span>
-                      )}
+                      {formatPrice(plan.flatPrice, plan.currency)}
+                      <span className="font-sans text-[10px] font-normal text-muted-foreground">
+                        {formatCadence(
+                          plan.billingInterval,
+                          plan.billingIntervalCount,
+                        )}
+                      </span>
                     </p>
                   </div>
                   {isCurrent ? (
@@ -127,16 +162,19 @@ export function UpgradeDialog() {
                   {plan.description}
                 </p>
                 <ul className="mt-4 space-y-2 border-t pt-3">
-                  {plan.benefits.map((benefit) => (
-                    <li className="flex items-center gap-2 text-xs" key={benefit}>
+                  {plan.features.map((feature) => (
+                    <li
+                      className="flex items-center gap-2 text-xs"
+                      key={feature}
+                    >
                       <CheckCircleFillIcon size={14} />
-                      {benefit}
+                      {feature}
                     </li>
                   ))}
                 </ul>
 
                 <div className="mt-auto pt-4">
-                  {plan.id === 'pro' && profile?.plan === 'free' ? (
+                  {plan.slug === 'pro' && profile?.plan === 'free' ? (
                     <Button
                       className="w-full"
                       data-testid="upgrade-button"
