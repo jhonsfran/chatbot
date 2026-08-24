@@ -5,9 +5,19 @@ import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './code-block';
 
 const components: Partial<Components> = {
-  // @ts-expect-error
   code: CodeBlock,
-  pre: ({ children }) => <>{children}</>,
+  pre: ({ node, className, ...props }) => (
+    <pre
+      className={[
+        'not-prose w-full overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-zinc-200 p-4 text-sm text-zinc-900',
+        'dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      {...props}
+    />
+  ),
   ol: ({ node, children, ...props }) => {
     return (
       <ol className="list-decimal list-outside ml-4" {...props}>

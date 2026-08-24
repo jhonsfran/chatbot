@@ -4,7 +4,7 @@ import { AppSidebar } from '@/components/app-sidebar';
 import { UpgradeDialog } from '@/components/upgrade-dialog';
 import { UpgradePromptProvider } from '@/components/upgrade-prompt';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
-import { auth } from '../(auth)/auth';
+import { auth, isRegularUser } from '../(auth)/auth';
 import Script from 'next/script';
 
 export const experimental_ppr = true;
@@ -23,7 +23,7 @@ export default async function Layout({
         src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"
         strategy="beforeInteractive"
       />
-      <UpgradePromptProvider>
+      <UpgradePromptProvider billingEnabled={isRegularUser(session)}>
         <SidebarProvider defaultOpen={!isCollapsed}>
           <AppSidebar user={session?.user} />
           <SidebarInset>{children}</SidebarInset>

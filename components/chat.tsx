@@ -10,7 +10,7 @@ import { fetcher, fetchWithErrorHandlers, generateUUID } from '@/lib/utils';
 import { Artifact } from './artifact';
 import { MultimodalInput } from './multimodal-input';
 import { Messages } from './messages';
-import type { VisibilityType } from './visibility-selector';
+import type { VisibilityType } from '@/lib/ui/chat-visibility';
 import { useArtifactSelector } from '@/hooks/use-artifact';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
@@ -22,6 +22,7 @@ import { ChatSDKError } from '@/lib/errors';
 import type { PlanAccessStatus } from '@/lib/ai/models';
 import { useUpgradePrompt } from './upgrade-prompt';
 import { LoginGateDialog } from './login-gate-dialog';
+import { BILLING_PROFILE_KEY } from '@/hooks/use-billing-profile';
 
 export function Chat({
   id,
@@ -45,7 +46,7 @@ export function Chat({
   planAccessStatus: PlanAccessStatus;
 }) {
   const { mutate } = useSWRConfig();
-  const { showUpgradePrompt } = useUpgradePrompt();
+  const { showLimitPrompt } = useUpgradePrompt();
   const [isLoginGateOpen, setIsLoginGateOpen] = useState(false);
   const requestAuthentication = useCallback(() => {
     setIsLoginGateOpen(true);
@@ -83,11 +84,12 @@ export function Chat({
     }),
     onFinish: () => {
       void mutate(unstable_serialize(getChatHistoryPaginationKey));
+      void mutate(BILLING_PROFILE_KEY);
     },
     onError: (error) => {
       if (error instanceof ChatSDKError) {
         if (error.type === 'rate_limit' && error.surface === 'billing') {
-          showUpgradePrompt();
+          void mutate(BILLING_PROFILE_KEY).then(() => showLimitPrompt());
           return;
         }
 
@@ -123,9 +125,9 @@ export function Chat({
           part.type === 'billing-limit-reached',
       )
     ) {
-      showUpgradePrompt();
+      void mutate(BILLING_PROFILE_KEY).then(() => showLimitPrompt());
     }
-  }, [data, showUpgradePrompt]);
+  }, [data, mutate, showLimitPrompt]);
 
   useEffect(() => {
     if (query && !hasAppendedQuery) {

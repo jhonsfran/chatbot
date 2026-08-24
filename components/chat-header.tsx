@@ -9,7 +9,8 @@ import { NewChatButton } from './new-chat-button';
 import { useSidebar } from './ui/sidebar';
 import { memo } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
-import { type VisibilityType, VisibilitySelector } from './visibility-selector';
+import type { VisibilityType } from '@/lib/ui/chat-visibility';
+import { VisibilitySelector } from './visibility-selector';
 import type { PlanAccessStatus } from '@/lib/ai/models';
 
 function PureChatHeader({
@@ -29,13 +30,15 @@ function PureChatHeader({
 }) {
   const { open } = useSidebar();
 
-  const { width: windowWidth } = useWindowSize();
+  const { width: windowWidth } = useWindowSize({
+    initializeWithValue: false,
+  });
 
   return (
     <header className="flex sticky top-0 bg-background py-1.5 items-center px-2 md:px-2 gap-2">
       <SidebarToggle />
 
-      {(!open || windowWidth < 768) && (
+      {(!open || (windowWidth !== undefined && windowWidth < 768)) && (
         <Tooltip>
           <TooltipTrigger asChild>
             <NewChatButton

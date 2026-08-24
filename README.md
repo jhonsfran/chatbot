@@ -59,9 +59,11 @@ pnpm unprice:apply
 
 The command prints a `reviewUrl` and stops. A human must review and publish the draft in Unprice. The published proposal uses USD:
 
-- Free: 10,000 tokens/day, capped at $0.10 for each chat per UTC day. New customers receive a $3.30 monthly credit line so those reservations can run (the maximum actual token spend remains $3.10/month).
-- Pro: $10/month, reasoning access, 1,000,000 included tokens/month, then $0.00001/token. Customers can upgrade from Free in the chatbot.
-- Enterprise: Pro access plus artifact tools for creating, updating, and improving generated documents. Sales assigns Enterprise customers in Unprice and configures any required credit line there.
+- Free: 10,000 tokens every 5 minutes, capped at $0.10 for each chat per UTC day. New customers receive a capped $3.30 credit line so those reservations can run.
+- Pro: $10 per 15-minute demo billing cycle, reasoning access, and 1,000,000 included tokens every 5 minutes, then $0.00001/token. Customers can upgrade from Free in the chatbot.
+- Enterprise: Pro access plus artifact tools and public chat sharing. Sales assigns Enterprise customers in Unprice and configures any required credit line there.
+
+The sidebar always shows the active plan, token usage, the next 5-minute usage reset, and the next 15-minute renewal. The upgrade reminder stays hidden until a usage limit is reached. This short cadence is for the sandbox demo and must not be published as production pricing.
 
 Registration always provisions the published Free plan. The chatbot can upgrade Free customers to Pro. Sales upgrades Free customers to Enterprise in Unprice; the next access check unlocks their Enterprise features.
 
@@ -72,6 +74,7 @@ The chatbot checks Unprice feature slugs, never plan names, when it grants runti
 | `total-tokens` | ✓ | ✓ | ✓ |
 | `reasoning-model` | — | ✓ | ✓ |
 | `artifact-tools` | — | — | ✓ |
+| `public-chat-sharing` | — | — | ✓ |
 
 Run `pnpm db:migrate` after pulling this integration. Registered users store their Unprice customer ID in the `User` row; guest sessions remain local and are not provisioned.
 

@@ -20,15 +20,12 @@ import {
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { UsageCard } from './usage-card';
 
 export function AppSidebar({ user }: { user: User | undefined }) {
   const { setOpenMobile } = useSidebar();
-  const {
-    dismissUpgradeReminder,
-    isUpgradeCardVisible,
-    isUpgrading,
-    showUpgradePrompt,
-  } = useUpgradePrompt();
+  const { isUpgradeCardVisible, isUpgrading, showPlanDialog } =
+    useUpgradePrompt();
 
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
@@ -65,6 +62,13 @@ export function AppSidebar({ user }: { user: User | undefined }) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
+        {user && (
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <UsageCard onManagePlan={showPlanDialog} />
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         {isUpgradeCardVisible && user && (
           <SidebarGroup>
             <SidebarGroupContent>
@@ -82,28 +86,17 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                   More room to think.
                 </p>
                 <p className="mt-1 text-sidebar-foreground/65 text-xs leading-5">
-                  Reasoning access and $10 in monthly token usage.
+                  Reasoning access and 1M included tokens every five minutes.
                 </p>
                 <Button
                   className="mt-3 w-full"
                   data-testid="upgrade-card-button"
                   disabled={isUpgrading}
-                  onClick={showUpgradePrompt}
+                  onClick={showPlanDialog}
                   size="sm"
                   type="button"
                 >
-                  View Pro — $10/month
-                </Button>
-                <Button
-                  className="mt-1.5 w-full text-sidebar-foreground/65 hover:text-sidebar-foreground"
-                  data-testid="dismiss-upgrade-button"
-                  disabled={isUpgrading}
-                  onClick={dismissUpgradeReminder}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  Dismiss
+                  View plans
                 </Button>
               </div>
             </SidebarGroupContent>

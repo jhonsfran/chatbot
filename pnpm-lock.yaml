@@ -66,8 +66,8 @@ importers:
         specifier: ^1.1.0
         version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@unprice/api':
-        specifier: 0.1.7
-        version: 0.1.7
+        specifier: 0.2.0
+        version: 0.2.0
       '@vercel/analytics':
         specifier: ^1.3.1
         version: 1.5.0(next@15.5.21(@opentelemetry/api@1.9.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
@@ -1753,8 +1753,8 @@ packages:
   '@ungap/structured-clone@1.3.0':
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
 
-  '@unprice/api@0.1.7':
-    resolution: {integrity: sha512-P46jJY/OYsiE+P0/62lGgF4iLn8aDQbjTAOcvub8/9sxNAykKMtzIThAnn0e6GrnsdwUzptsaJpU9bC6LgRemA==}
+  '@unprice/api@0.2.0':
+    resolution: {integrity: sha512-rLnROAyfZJ+LC58DcdG3WbvsI0GriMadRKo9Aq9VIIHXfgFyaAFFoI+Fg8nwowwt28I/VRCi4lBSAgIroX8LeQ==}
 
   '@vercel/analytics@1.5.0':
     resolution: {integrity: sha512-MYsBzfPki4gthY5HnYN7jgInhAZ7Ac1cYDoRWFomwGHWEX7odTEzbtg9kf/QSo7XEsEAqlQugA6gJ2WS2DEa3g==}
@@ -5333,7 +5333,7 @@ snapshots:
 
   '@ungap/structured-clone@1.3.0': {}
 
-  '@unprice/api@0.1.7':
+  '@unprice/api@0.2.0':
     dependencies:
       openapi-fetch: 0.17.0
 

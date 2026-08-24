@@ -4,6 +4,7 @@ export const unpriceCatalog = {
   },
   features: {
     artifactTools: 'artifact-tools',
+    publicChatSharing: 'public-chat-sharing',
     reasoningModel: 'reasoning-model',
     totalTokens: 'total-tokens',
   },

@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
+
 import {
   and,
   asc,
@@ -9,7 +11,9 @@ import {
   gt,
   gte,
   inArray,
+  isNull,
   lt,
+  or,
   type SQL,
 } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -30,7 +34,7 @@ import {
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 import { generateHashedPassword } from './utils';
-import type { VisibilityType } from '@/components/visibility-selector';
+import type { VisibilityType } from '@/lib/ui/chat-visibility';
 import { ChatSDKError } from '../errors';
 
 // Optionally, if not using email/pass login, you can
@@ -105,29 +109,119 @@ export async function findOrCreatePendingUser({
   }
 }
 
-export async function setUserUnpriceCustomerId({
+const PROVISIONING_STALE_AFTER_MS = 2 * 60 * 1000;
+
+export async function claimUserUnpriceProvisioning({
   id,
-  unpriceCustomerId,
 }: {
   id: string;
-  unpriceCustomerId: string;
-}): Promise<User> {
+}): Promise<{ user: User; attemptId: string } | undefined> {
+  const staleBefore = new Date(Date.now() - PROVISIONING_STALE_AFTER_MS);
+  const attemptId = randomUUID();
+
   try {
-    const [updatedUser] = await db
+    const [claimedUser] = await db
       .update(user)
-      .set({ unpriceCustomerId })
-      .where(eq(user.id, id))
+      .set({
+        unpriceProvisioningStatus: 'provisioning',
+        unpriceProvisioningAttemptId: attemptId,
+        unpriceProvisioningError: null,
+        unpriceProvisioningStartedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(user.id, id),
+          isNull(user.unpriceCustomerId),
+          or(
+            inArray(user.unpriceProvisioningStatus, ['pending', 'failed']),
+            and(
+              eq(user.unpriceProvisioningStatus, 'provisioning'),
+              or(
+                isNull(user.unpriceProvisioningStartedAt),
+                lt(user.unpriceProvisioningStartedAt, staleBefore),
+              ),
+            ),
+          ),
+        ),
+      )
       .returning();
 
-    if (!updatedUser) {
-      throw new Error('User not found');
-    }
-
-    return updatedUser;
+    return claimedUser ? { user: claimedUser, attemptId } : undefined;
   } catch (error) {
     throw new ChatSDKError(
       'bad_request:database',
-      'Failed to attach Unprice customer to user',
+      'Failed to claim Unprice provisioning',
+    );
+  }
+}
+
+export async function completeUserUnpriceProvisioning({
+  id,
+  attemptId,
+  unpriceCustomerId,
+}: {
+  id: string;
+  attemptId: string;
+  unpriceCustomerId: string;
+}): Promise<boolean> {
+  try {
+    const [updatedUser] = await db
+      .update(user)
+      .set({
+        unpriceCustomerId,
+        unpriceProvisioningStatus: 'ready',
+        unpriceProvisioningAttemptId: null,
+        unpriceProvisioningError: null,
+        unpriceProvisioningStartedAt: null,
+      })
+      .where(
+        and(
+          eq(user.id, id),
+          eq(user.unpriceProvisioningStatus, 'provisioning'),
+          eq(user.unpriceProvisioningAttemptId, attemptId),
+          isNull(user.unpriceCustomerId),
+        ),
+      )
+      .returning({ id: user.id });
+
+    return Boolean(updatedUser);
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to complete Unprice provisioning',
+    );
+  }
+}
+
+export async function failUserUnpriceProvisioning({
+  id,
+  attemptId,
+  message,
+}: {
+  id: string;
+  attemptId: string;
+  message: string;
+}): Promise<void> {
+  try {
+    await db
+      .update(user)
+      .set({
+        unpriceProvisioningStatus: 'failed',
+        unpriceProvisioningAttemptId: null,
+        unpriceProvisioningError: message.slice(0, 160),
+        unpriceProvisioningStartedAt: null,
+      })
+      .where(
+        and(
+          eq(user.id, id),
+          eq(user.unpriceProvisioningStatus, 'provisioning'),
+          eq(user.unpriceProvisioningAttemptId, attemptId),
+        ),
+      );
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to record Unprice provisioning failure',
     );
   }
 }
@@ -153,6 +247,23 @@ export async function saveChat({
     });
   } catch (error) {
     throw new ChatSDKError('bad_request:database', 'Failed to save chat');
+  }
+}
+
+export async function updateChatTitleById({
+  chatId,
+  title,
+}: {
+  chatId: string;
+  title: string;
+}) {
+  try {
+    return await db.update(chat).set({ title }).where(eq(chat.id, chatId));
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to update chat title by id',
+    );
   }
 }
 

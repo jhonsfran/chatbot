@@ -26,7 +26,7 @@ import type { UseChatHelpers } from '@ai-sdk/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown } from 'lucide-react';
 import { useScrollToBottom } from '@/hooks/use-scroll-to-bottom';
-import type { VisibilityType } from './visibility-selector';
+import type { VisibilityType } from '@/lib/ui/chat-visibility';
 
 function PureMultimodalInput({
   chatId,
