@@ -1,40 +1,19 @@
 import 'server-only';
 
 import { Unprice, type ApiError, type ApiResult } from '@unprice/api';
-import { z } from 'zod';
 import { unpriceCatalog } from './catalog';
+import {
+  ChatMessageReservation,
+  getChatMessageReservationKey,
+} from './chat-reservation';
 
 type HeaderReader = Pick<Headers, 'get'>;
 
-const customerPlanChangeResultSchema = z.discriminatedUnion('status', [
-  z.object({
-    status: z.literal('changed'),
-    subscriptionId: z.string(),
-    phaseId: z.string(),
-  }),
-  z.object({
-    status: z.literal('requires_payment_method'),
-    paymentProvider: z.enum(['sandbox', 'square', 'stripe']),
-    message: z.string(),
-  }),
-]);
-
-const unpriceErrorPayloadSchema = z.object({
-  error: z
-    .object({
-      code: z.string().optional(),
-      message: z.string().optional(),
-      requestId: z.string().optional(),
-    })
-    .optional(),
-});
-
-type CustomerPlanChangeResult = z.infer<typeof customerPlanChangeResultSchema>;
-
 let runtimeClient: Unprice | undefined;
 
-const CHAT_CONVERSATION_BUDGET_MINOR = 10;
-// The sandbox credit lines leave room for concurrent $0.10 chat reservations.
+export const CHAT_MAX_OUTPUT_TOKENS = 1_000;
+const CHAT_RESERVATION_TTL_MS = 10 * 60 * 1000;
+// The sandbox credit lines leave room for several concurrent $1 chat runs.
 const FREE_CREDIT_LINE_MINOR = 330;
 const PRO_CREDIT_LINE_MINOR = 1_000;
 
@@ -94,65 +73,6 @@ async function getRuntimeClient(): Promise<Unprice> {
   });
 
   return runtimeClient;
-}
-
-function getRuntimeToken(): string {
-  const token = process.env.UNPRICE_TOKEN;
-
-  if (!token) {
-    throw new UnpriceRuntimeError(
-      'client.initialize',
-      'MISSING_RUNTIME_TOKEN',
-      undefined,
-      'UNPRICE_TOKEN is not configured',
-    );
-  }
-
-  return token;
-}
-
-async function postUnpriceCompatibilityOperation(
-  operation: string,
-  path: string,
-  body: Record<string, unknown>,
-): Promise<unknown> {
-  const response = await fetch(
-    new URL(path, process.env.UNPRICE_API_URL ?? 'https://api.unprice.dev'),
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${getRuntimeToken()}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    },
-  );
-
-  let payload: unknown;
-
-  try {
-    payload = await response.json();
-  } catch {
-    throw new UnpriceRuntimeError(
-      operation,
-      'INVALID_RESPONSE',
-      undefined,
-      'Unprice returned an invalid response',
-    );
-  }
-
-  if (!response.ok) {
-    const parsed = unpriceErrorPayloadSchema.safeParse(payload);
-
-    throw new UnpriceRuntimeError(
-      operation,
-      parsed.data?.error?.code ?? 'FETCH_ERROR',
-      parsed.data?.error?.requestId,
-      parsed.data?.error?.message,
-    );
-  }
-
-  return payload;
 }
 
 export function getApplicationBaseUrl(headers: HeaderReader): string {
@@ -290,28 +210,15 @@ async function getProPlanVersionId(): Promise<string> {
 
 export async function upgradeCustomerToPro(customerId: string) {
   const planVersionId = await getProPlanVersionId();
-  const result = await postUnpriceCompatibilityOperation(
+  return unwrap(
     'customers.changePlan',
-    '/v1/customers/change-plan',
-    {
+    await (await getRuntimeClient()).customers.changePlan({
       customerId,
       planVersionId,
       creditLinePolicy: 'capped',
       creditLineAmountMinor: PRO_CREDIT_LINE_MINOR,
-    },
+    }),
   );
-  const parsed = customerPlanChangeResultSchema.safeParse(result);
-
-  if (!parsed.success) {
-    throw new UnpriceRuntimeError(
-      'customers.changePlan',
-      'INVALID_RESPONSE',
-      undefined,
-      'Unprice returned an unexpected plan-change response',
-    );
-  }
-
-  return parsed.data;
 }
 
 export async function createPaymentMethodSetup({
@@ -336,18 +243,24 @@ export async function createPaymentMethodSetup({
   );
 }
 
-function getChatBudgetWindow(now = new Date()) {
-  return {
-    key: now.toISOString().slice(0, 10),
-    expiresAt: Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() + 1,
-    ),
-  };
+function getChatMessageBudgetMinor(): number {
+  const amount = Number(
+    process.env.UNPRICE_CHAT_CONVERSATION_BUDGET_MINOR ?? '100',
+  );
+
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    throw new UnpriceRuntimeError(
+      'runs.start',
+      'INVALID_CONVERSATION_BUDGET',
+      undefined,
+      'UNPRICE_CHAT_CONVERSATION_BUDGET_MINOR must be a positive integer',
+    );
+  }
+
+  return amount;
 }
 
-export async function startChatBudgetRun({
+export async function reserveChatMessage({
   customerId,
   chatId,
   messageId,
@@ -356,78 +269,42 @@ export async function startChatBudgetRun({
   chatId: string;
   messageId: string;
 }) {
-  const window = getChatBudgetWindow();
-
-  return unwrap(
-    'runs.start',
-    await (await getRuntimeClient()).runs.start({
+  const client = await getRuntimeClient();
+  const sdkReservation = unwrap(
+    'reservations.reserve',
+    await client.reservations.reserve({
       customerId,
-      budgetAmountMinor: CHAT_CONVERSATION_BUDGET_MINOR,
-      idempotencyKey: `chat:${customerId}:${chatId}:${messageId}:budget:${window.key}`,
-      workloadType: 'custom',
-      workloadId: chatId,
-      expiresAt: window.expiresAt,
+      maximumAmountMinor: getChatMessageBudgetMinor(),
+      idempotencyKey: getChatMessageReservationKey({
+        customerId,
+        chatId,
+        messageId,
+      }),
+      expiresAt: Date.now() + CHAT_RESERVATION_TTL_MS,
     }),
   );
-}
 
-export async function endChatBudgetRun({
-  runId,
-  status,
-}: {
-  runId: string;
-  status: 'completed' | 'failed';
-}) {
-  return unwrap(
-    'runs.end',
-    await (await getRuntimeClient()).runs.end({
-      runId,
-      status,
-    }),
-  );
-}
+  return new ChatMessageReservation({
+    settle: async (totalTokens) => {
+      const settlement = unwrap(
+        'reservations.settle',
+        await sdkReservation.settle({
+          featureSlug: unpriceCatalog.features.totalTokens,
+          eventSlug: unpriceCatalog.events.aiCompletion,
+          id: messageId,
+          properties: { total_tokens: totalTokens },
+        }),
+      );
 
-export async function consumeChatBudgetTokens({
-  runId,
-  idempotencyKey,
-  totalTokens,
-}: {
-  runId: string;
-  idempotencyKey: string;
-  totalTokens: number;
-}) {
-  return unwrap(
-    'runs.consume',
-    await (await getRuntimeClient()).runs.consume({
-      runId,
-      featureSlug: unpriceCatalog.features.totalTokens,
-      eventSlug: unpriceCatalog.events.aiCompletion,
-      idempotencyKey,
-      properties: {
-        total_tokens: totalTokens,
-      },
-    }),
-  );
-}
-
-export async function recordChatTokenEvidence({
-  customerId,
-  idempotencyKey,
-  totalTokens,
-}: {
-  customerId: string;
-  idempotencyKey: string;
-  totalTokens: number;
-}) {
-  return unwrap(
-    'usage.record',
-    await (await getRuntimeClient()).usage.record({
-      customerId,
-      eventSlug: unpriceCatalog.events.aiCompletion,
-      idempotencyKey,
-      properties: { total_tokens: totalTokens },
-    }),
-  );
+      return {
+        accepted: settlement.accepted || settlement.reason === 'duplicate',
+        reason: settlement.reason,
+      };
+    },
+    release: async () => {
+      unwrap('reservations.release', await sdkReservation.release());
+    },
+  });
 }
 
 export function logUnpriceError(context: string, error: unknown) {

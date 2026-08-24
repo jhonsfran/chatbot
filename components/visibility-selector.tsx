@@ -17,9 +17,8 @@ import {
 } from './icons';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
 import { useBillingProfile } from '@/hooks/use-billing-profile';
+import type { VisibilityType } from '@/lib/ui/chat-visibility';
 import { useUpgradePrompt } from './upgrade-prompt';
-
-export type VisibilityType = 'private' | 'public';
 
 const visibilities: Array<{
   id: VisibilityType;
@@ -52,7 +51,8 @@ export function VisibilitySelector({
   const [open, setOpen] = useState(false);
   const { profile } = useBillingProfile();
   const { showPlanDialog } = useUpgradePrompt();
-  const isPublicSharingLocked = profile?.canSharePublicChats !== true;
+  const isPublicSharingLocked =
+    profile?.status !== 'ready' || !profile.canSharePublicChats;
 
   const { visibilityType, setVisibilityType } = useChatVisibility({
     chatId,

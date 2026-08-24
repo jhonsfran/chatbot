@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
+
 import {
   and,
   asc,
@@ -32,7 +34,7 @@ import {
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 import { generateHashedPassword } from './utils';
-import type { VisibilityType } from '@/components/visibility-selector';
+import type { VisibilityType } from '@/lib/ui/chat-visibility';
 import { ChatSDKError } from '../errors';
 
 // Optionally, if not using email/pass login, you can
@@ -107,52 +109,22 @@ export async function findOrCreatePendingUser({
   }
 }
 
-export async function setUserUnpriceCustomerId({
-  id,
-  unpriceCustomerId,
-}: {
-  id: string;
-  unpriceCustomerId: string;
-}): Promise<User> {
-  try {
-    const [updatedUser] = await db
-      .update(user)
-      .set({
-        unpriceCustomerId,
-        unpriceProvisioningStatus: 'ready',
-        unpriceProvisioningError: null,
-        unpriceProvisioningStartedAt: null,
-      })
-      .where(eq(user.id, id))
-      .returning();
-
-    if (!updatedUser) {
-      throw new Error('User not found');
-    }
-
-    return updatedUser;
-  } catch (error) {
-    throw new ChatSDKError(
-      'bad_request:database',
-      'Failed to attach Unprice customer to user',
-    );
-  }
-}
-
 const PROVISIONING_STALE_AFTER_MS = 2 * 60 * 1000;
 
 export async function claimUserUnpriceProvisioning({
   id,
 }: {
   id: string;
-}): Promise<User | undefined> {
+}): Promise<{ user: User; attemptId: string } | undefined> {
   const staleBefore = new Date(Date.now() - PROVISIONING_STALE_AFTER_MS);
+  const attemptId = randomUUID();
 
   try {
     const [claimedUser] = await db
       .update(user)
       .set({
         unpriceProvisioningStatus: 'provisioning',
+        unpriceProvisioningAttemptId: attemptId,
         unpriceProvisioningError: null,
         unpriceProvisioningStartedAt: new Date(),
       })
@@ -174,7 +146,7 @@ export async function claimUserUnpriceProvisioning({
       )
       .returning();
 
-    return claimedUser;
+    return claimedUser ? { user: claimedUser, attemptId } : undefined;
   } catch (error) {
     throw new ChatSDKError(
       'bad_request:database',
@@ -185,26 +157,57 @@ export async function claimUserUnpriceProvisioning({
 
 export async function completeUserUnpriceProvisioning({
   id,
+  attemptId,
   unpriceCustomerId,
 }: {
   id: string;
+  attemptId: string;
   unpriceCustomerId: string;
-}) {
-  return setUserUnpriceCustomerId({ id, unpriceCustomerId });
+}): Promise<boolean> {
+  try {
+    const [updatedUser] = await db
+      .update(user)
+      .set({
+        unpriceCustomerId,
+        unpriceProvisioningStatus: 'ready',
+        unpriceProvisioningAttemptId: null,
+        unpriceProvisioningError: null,
+        unpriceProvisioningStartedAt: null,
+      })
+      .where(
+        and(
+          eq(user.id, id),
+          eq(user.unpriceProvisioningStatus, 'provisioning'),
+          eq(user.unpriceProvisioningAttemptId, attemptId),
+          isNull(user.unpriceCustomerId),
+        ),
+      )
+      .returning({ id: user.id });
+
+    return Boolean(updatedUser);
+  } catch (error) {
+    throw new ChatSDKError(
+      'bad_request:database',
+      'Failed to complete Unprice provisioning',
+    );
+  }
 }
 
 export async function failUserUnpriceProvisioning({
   id,
+  attemptId,
   message,
 }: {
   id: string;
+  attemptId: string;
   message: string;
-}) {
+}): Promise<void> {
   try {
     await db
       .update(user)
       .set({
         unpriceProvisioningStatus: 'failed',
+        unpriceProvisioningAttemptId: null,
         unpriceProvisioningError: message.slice(0, 160),
         unpriceProvisioningStartedAt: null,
       })
@@ -212,6 +215,7 @@ export async function failUserUnpriceProvisioning({
         and(
           eq(user.id, id),
           eq(user.unpriceProvisioningStatus, 'provisioning'),
+          eq(user.unpriceProvisioningAttemptId, attemptId),
         ),
       );
   } catch (error) {

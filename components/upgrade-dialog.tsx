@@ -50,6 +50,7 @@ export function UpgradeDialog() {
     startUpgrade,
   } = useUpgradePrompt();
   const { profile } = useBillingProfile();
+  const currentPlan = profile?.status === 'ready' ? profile.plan : null;
   const { plans, error, isLoading, refresh } =
     usePlanCatalog(isUpgradePromptOpen);
 
@@ -79,8 +80,8 @@ export function UpgradeDialog() {
               : 'Choose how much room you need.'}
           </AlertDialogTitle>
           <AlertDialogDescription className="max-w-xl pt-1 text-pretty leading-6">
-            Usage resets every five minutes. The demo billing cycle renews every
-            15 minutes. Enterprise access is assigned by sales.
+            Usage and renewal times follow your active plan. Enterprise access
+            is assigned by sales.
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -125,7 +126,7 @@ export function UpgradeDialog() {
           ) : null}
 
           {plans?.map((plan) => {
-            const isCurrent = profile?.plan === plan.slug;
+            const isCurrent = currentPlan === plan.slug;
             const isEnterprise = plan.slug === 'enterprise';
 
             return (
@@ -174,7 +175,7 @@ export function UpgradeDialog() {
                 </ul>
 
                 <div className="mt-auto pt-4">
-                  {plan.slug === 'pro' && profile?.plan === 'free' ? (
+                  {plan.slug === 'pro' && currentPlan === 'free' ? (
                     <Button
                       className="w-full"
                       data-testid="upgrade-button"

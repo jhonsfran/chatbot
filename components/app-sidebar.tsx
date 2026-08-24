@@ -24,12 +24,8 @@ import { UsageCard } from './usage-card';
 
 export function AppSidebar({ user }: { user: User | undefined }) {
   const { setOpenMobile } = useSidebar();
-  const {
-    dismissUpgradeReminder,
-    isUpgradeCardVisible,
-    isUpgrading,
-    showPlanDialog,
-  } = useUpgradePrompt();
+  const { isUpgradeCardVisible, isUpgrading, showPlanDialog } =
+    useUpgradePrompt();
 
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
@@ -101,17 +97,6 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                   type="button"
                 >
                   View plans
-                </Button>
-                <Button
-                  className="mt-1.5 w-full text-sidebar-foreground/65 hover:text-sidebar-foreground"
-                  data-testid="dismiss-upgrade-button"
-                  disabled={isUpgrading}
-                  onClick={dismissUpgradeReminder}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  Dismiss
                 </Button>
               </div>
             </SidebarGroupContent>

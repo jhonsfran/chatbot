@@ -27,7 +27,7 @@ import { sheetArtifact } from '@/artifacts/sheet/client';
 import { textArtifact } from '@/artifacts/text/client';
 import equal from 'fast-deep-equal';
 import type { UseChatHelpers } from '@ai-sdk/react';
-import type { VisibilityType } from './visibility-selector';
+import type { VisibilityType } from '@/lib/ui/chat-visibility';
 
 export const artifactDefinitions = [
   textArtifact,

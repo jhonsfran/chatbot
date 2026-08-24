@@ -10,7 +10,7 @@ import { fetcher, fetchWithErrorHandlers, generateUUID } from '@/lib/utils';
 import { Artifact } from './artifact';
 import { MultimodalInput } from './multimodal-input';
 import { Messages } from './messages';
-import type { VisibilityType } from './visibility-selector';
+import type { VisibilityType } from '@/lib/ui/chat-visibility';
 import { useArtifactSelector } from '@/hooks/use-artifact';
 import { unstable_serialize } from 'swr/infinite';
 import { getChatHistoryPaginationKey } from './sidebar-history';
@@ -89,8 +89,7 @@ export function Chat({
     onError: (error) => {
       if (error instanceof ChatSDKError) {
         if (error.type === 'rate_limit' && error.surface === 'billing') {
-          void mutate(BILLING_PROFILE_KEY);
-          showLimitPrompt();
+          void mutate(BILLING_PROFILE_KEY).then(() => showLimitPrompt());
           return;
         }
 
@@ -126,8 +125,7 @@ export function Chat({
           part.type === 'billing-limit-reached',
       )
     ) {
-      void mutate(BILLING_PROFILE_KEY);
-      showLimitPrompt();
+      void mutate(BILLING_PROFILE_KEY).then(() => showLimitPrompt());
     }
   }, [data, mutate, showLimitPrompt]);
 

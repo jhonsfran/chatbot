@@ -24,6 +24,7 @@ export const user = pgTable('User', {
   unpriceProvisioningError: varchar('unpriceProvisioningError', {
     length: 160,
   }),
+  unpriceProvisioningAttemptId: uuid('unpriceProvisioningAttemptId'),
   unpriceProvisioningStartedAt: timestamp('unpriceProvisioningStartedAt'),
 });
 

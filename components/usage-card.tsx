@@ -26,6 +26,9 @@ export function UsageCard({ onManagePlan }: { onManagePlan: () => void }) {
     [profile],
   );
   const now = clientNow + clockOffset;
+  const usageResetsAt =
+    profile?.status === 'ready' ? profile.usageResetsAt : null;
+  const cycleEndsAt = profile?.status === 'ready' ? profile.cycleEndsAt : null;
 
   useEffect(() => {
     const interval = window.setInterval(() => setClientNow(Date.now()), 1_000);
@@ -34,8 +37,8 @@ export function UsageCard({ onManagePlan }: { onManagePlan: () => void }) {
 
   useEffect(() => {
     const nextBoundary = Math.min(
-      profile?.usageResetsAt ?? Number.POSITIVE_INFINITY,
-      profile?.cycleEndsAt ?? Number.POSITIVE_INFINITY,
+      usageResetsAt ?? Number.POSITIVE_INFINITY,
+      cycleEndsAt ?? Number.POSITIVE_INFINITY,
     );
 
     if (!Number.isFinite(nextBoundary)) {
@@ -48,7 +51,7 @@ export function UsageCard({ onManagePlan }: { onManagePlan: () => void }) {
       Math.max(0, nextBoundary - serverAlignedNow) + 250,
     );
     return () => window.clearTimeout(timeout);
-  }, [clockOffset, profile?.cycleEndsAt, profile?.usageResetsAt, refresh]);
+  }, [clockOffset, cycleEndsAt, refresh, usageResetsAt]);
 
   if (isLoading && !profile) {
     return (

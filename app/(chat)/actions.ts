@@ -9,7 +9,7 @@ import {
   getUserById,
   updateChatVisiblityById,
 } from '@/lib/db/queries';
-import type { VisibilityType } from '@/components/visibility-selector';
+import type { VisibilityType } from '@/lib/ui/chat-visibility';
 import { myProvider } from '@/lib/ai/providers';
 import { auth, isRegularUser } from '@/app/(auth)/auth';
 import { getFlatEntitlements } from '@/lib/unprice/billing-profile';

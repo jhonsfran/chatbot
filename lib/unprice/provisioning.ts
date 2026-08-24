@@ -9,9 +9,38 @@ import {
   logUnpriceError,
   provisionUnpriceCustomer,
 } from '@/lib/unprice/runtime';
+import {
+  type ProvisioningClaim,
+  runProvisioningAttempt,
+} from '@/lib/unprice/provisioning-attempt';
 
-const SAFE_PROVISIONING_ERROR =
-  'Billing setup did not finish. Retry from the usage card.';
+export async function claimRegisteredUserProvisioning(
+  userId: string,
+): Promise<ProvisioningClaim | undefined> {
+  return claimUserUnpriceProvisioning({ id: userId });
+}
+
+export async function provisionClaimedUser({
+  claim,
+  applicationBaseUrl,
+}: {
+  claim: ProvisioningClaim;
+  applicationBaseUrl: string;
+}): Promise<boolean> {
+  try {
+    return await runProvisioningAttempt(
+      { claim, applicationBaseUrl },
+      {
+        provisionCustomer: provisionUnpriceCustomer,
+        complete: completeUserUnpriceProvisioning,
+        fail: failUserUnpriceProvisioning,
+      },
+    );
+  } catch (error) {
+    logUnpriceError('Failed to provision registered customer', error);
+    throw error;
+  }
+}
 
 export async function provisionRegisteredUser({
   userId,
@@ -20,31 +49,11 @@ export async function provisionRegisteredUser({
   userId: string;
   applicationBaseUrl: string;
 }): Promise<boolean> {
-  const user = await claimUserUnpriceProvisioning({ id: userId });
+  const claim = await claimRegisteredUserProvisioning(userId);
 
-  if (!user) {
+  if (!claim) {
     return false;
   }
 
-  try {
-    const unpriceCustomerId = await provisionUnpriceCustomer({
-      userId: user.id,
-      email: user.email,
-      applicationBaseUrl,
-    });
-
-    await completeUserUnpriceProvisioning({
-      id: user.id,
-      unpriceCustomerId,
-    });
-
-    return true;
-  } catch (error) {
-    logUnpriceError('Failed to provision registered customer', error);
-    await failUserUnpriceProvisioning({
-      id: user.id,
-      message: SAFE_PROVISIONING_ERROR,
-    });
-    throw error;
-  }
+  return provisionClaimedUser({ claim, applicationBaseUrl });
 }

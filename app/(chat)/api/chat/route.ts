@@ -37,17 +37,14 @@ import type { Chat } from '@/lib/db/schema';
 import { differenceInSeconds } from 'date-fns';
 import { ChatSDKError } from '@/lib/errors';
 import {
+  CHAT_MAX_OUTPUT_TOKENS,
   checkTotalTokenAccess,
-  consumeChatBudgetTokens,
-  endChatBudgetRun,
   logUnpriceError,
-  recordChatTokenEvidence,
-  startChatBudgetRun,
+  reserveChatMessage,
   UnpriceRuntimeError,
 } from '@/lib/unprice/runtime';
 import { getFlatEntitlements } from '@/lib/unprice/billing-profile';
 import { getInitialChatTitle } from '@/lib/ai/chat-title';
-import { settleChatTokenUsage } from '@/lib/unprice/chat-settlement';
 
 export const maxDuration = 60;
 
@@ -56,14 +53,6 @@ const budgetRejectionCodes = new Set([
   'RUN_BUDGET_EXCEEDED',
   'WALLET_EMPTY',
 ]);
-
-function getFulfilledValue<T>(result: PromiseSettledResult<T>): T {
-  if (result.status === 'rejected') {
-    throw result.reason;
-  }
-
-  return result.value;
-}
 
 let globalStreamContext: ResumableStreamContext | null = null;
 
@@ -88,22 +77,9 @@ function getStreamContext() {
 }
 
 export async function POST(request: Request) {
-  let unpriceRunId: string | undefined;
-  let budgetRunFinalized = false;
-
-  const finalizeBudgetRun = async (status: 'completed' | 'failed') => {
-    if (!unpriceRunId || budgetRunFinalized) {
-      return;
-    }
-
-    try {
-      await endChatBudgetRun({ runId: unpriceRunId, status });
-      budgetRunFinalized = true;
-    } catch (error) {
-      logUnpriceError('Failed to close chat budget run', error);
-    }
-  };
-
+  let chatReservation:
+    | Awaited<ReturnType<typeof reserveChatMessage>>
+    | undefined;
   let requestBody: PostRequestBody;
 
   try {
@@ -141,36 +117,11 @@ export async function POST(request: Request) {
     }
 
     const unpriceCustomerId = registeredUser.unpriceCustomerId;
-    const billingResults = await Promise.allSettled([
+    const [tokenAccess, entitlements] = await Promise.all([
       checkTotalTokenAccess(unpriceCustomerId),
       getFlatEntitlements(unpriceCustomerId),
-      startChatBudgetRun({
-        customerId: unpriceCustomerId,
-        chatId: id,
-        messageId: message.id,
-      }),
-    ] as const);
-    const budgetResult = billingResults[2];
-
-    if (budgetResult.status === 'fulfilled') {
-      unpriceRunId = budgetResult.value.runId;
-    }
-
-    const failedBillingResult = billingResults.find(
-      (result) => result.status === 'rejected',
-    );
-
-    if (failedBillingResult?.status === 'rejected') {
-      await finalizeBudgetRun('failed');
-      throw failedBillingResult.reason;
-    }
-
-    const tokenAccess = getFulfilledValue(billingResults[0]);
-    const entitlements = getFulfilledValue(billingResults[1]);
-    const budgetRun = getFulfilledValue(billingResults[2]);
-
+    ]);
     if (!tokenAccess.allowed) {
-      await finalizeBudgetRun('failed');
       return new ChatSDKError(
         'rate_limit:billing',
         tokenAccess.rejectionReason,
@@ -181,7 +132,6 @@ export async function POST(request: Request) {
       selectedChatModel === 'chat-model-reasoning' &&
       !entitlements.canUseReasoning
     ) {
-      await finalizeBudgetRun('failed');
       return new ChatSDKError(
         'forbidden:billing',
         'REASONING_MODEL_REQUIRED',
@@ -192,31 +142,24 @@ export async function POST(request: Request) {
       selectedVisibilityType === 'public' &&
       !entitlements.canSharePublicChats
     ) {
-      await finalizeBudgetRun('failed');
       return new ChatSDKError(
         'forbidden:billing',
         'PUBLIC_SHARING_REQUIRED',
       ).toResponse();
     }
 
+    const reservation = await reserveChatMessage({
+      customerId: unpriceCustomerId,
+      chatId: id,
+      messageId: message.id,
+    });
+    chatReservation = reservation;
+
     const messages = appendClientMessage({
       // @ts-expect-error: todo add type conversion from DBMessage[] to UIMessage[]
       messages: previousMessages,
       message,
     });
-    if (budgetRun.status !== 'running' || budgetRun.remainingAmountMinor <= 0) {
-      if (budgetRun.status === 'running') {
-        await finalizeBudgetRun('failed');
-      } else {
-        budgetRunFinalized = true;
-      }
-
-      return new ChatSDKError(
-        'rate_limit:billing',
-        'BUDGET_EXCEEDED',
-      ).toResponse();
-    }
-
     if (!chat) {
       await saveChat({
         id,
@@ -279,6 +222,8 @@ export async function POST(request: Request) {
       execute: (dataStream) => {
         const result = streamText({
           model: myProvider.languageModel(selectedChatModel),
+          abortSignal: request.signal,
+          maxTokens: CHAT_MAX_OUTPUT_TOKENS,
           system: systemPrompt({ selectedChatModel, requestHints }),
           messages,
           maxSteps: 5,
@@ -294,7 +239,20 @@ export async function POST(request: Request) {
               dataStream,
             }),
           },
-          onFinish: async ({ response, usage }) => {
+          onFinish: async ({ response, steps }) => {
+            try {
+              const settlement = await reservation.settle(steps);
+
+              if (!settlement.accepted) {
+                dataStream.writeData({
+                  type: 'billing-limit-reached',
+                  reason: 'RUN_BUDGET_EXCEEDED',
+                });
+              }
+            } catch (error) {
+              logUnpriceError('Failed to settle chat usage', error);
+            }
+
             if (session.user?.id) {
               try {
                 const assistantId = getTrailingMessageId({
@@ -329,41 +287,13 @@ export async function POST(request: Request) {
                 console.error('Failed to save chat');
               }
             }
-
-            if (unpriceCustomerId && unpriceRunId) {
-              try {
-                const settlement = await settleChatTokenUsage(
-                  {
-                    runId: unpriceRunId,
-                    customerId: unpriceCustomerId,
-                    chatId: id,
-                    messageId: message.id,
-                    inputTokens: usage.promptTokens,
-                    outputTokens: usage.completionTokens,
-                  },
-                  {
-                    consume: consumeChatBudgetTokens,
-                    recordEvidence: recordChatTokenEvidence,
-                  },
-                );
-
-                if (settlement.limitReached) {
-                  dataStream.writeData({ type: 'billing-limit-reached' });
-                }
-
-                if (settlement.runIsRunning) {
-                  await finalizeBudgetRun(settlement.finalStatus);
-                } else {
-                  budgetRunFinalized = true;
-                }
-              } catch (error) {
-                logUnpriceError('Failed to settle chat usage', error);
-                await finalizeBudgetRun('failed');
-              }
-            }
           },
           onError: async () => {
-            await finalizeBudgetRun('failed');
+            try {
+              await reservation.release();
+            } catch (error) {
+              logUnpriceError('Failed to release chat reservation', error);
+            }
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
@@ -392,7 +322,13 @@ export async function POST(request: Request) {
       return new Response(stream);
     }
   } catch (error) {
-    await finalizeBudgetRun('failed');
+    if (chatReservation) {
+      try {
+        await chatReservation.release();
+      } catch (releaseError) {
+        logUnpriceError('Failed to release chat reservation', releaseError);
+      }
+    }
 
     if (error instanceof ChatSDKError) {
       return error.toResponse();

@@ -12,12 +12,11 @@ import {
 import {
   type BillingPlan,
   type BillingProfile,
-  getNextWindowBoundary,
+  normalizeBillingUsage,
 } from './billing-profile-types';
 
 const ENTITLEMENT_CACHE_TTL_MS = 15_000;
 const ENTITLEMENT_CACHE_MAX_ENTRIES = 500;
-const PAID_INCLUDED_TOKEN_ALLOWANCE = 1_000_000;
 
 export type FlatEntitlements = {
   canUseReasoning: boolean;
@@ -89,27 +88,17 @@ export async function getBillingProfile(
   if (!user.unpriceCustomerId) {
     const failed = user.unpriceProvisioningStatus === 'failed';
 
-    return {
-      status: failed ? 'failed' : 'pending',
-      serverNow: now,
-      plan: null,
-      usage: 0,
-      allowance: null,
-      hardLimit: false,
-      usageResetsAt: null,
-      cycleEndsAt: null,
-      canUseReasoning: false,
-      canUseArtifacts: false,
-      canSharePublicChats: false,
-      canSelfUpgrade: false,
-      ...(failed
-        ? {
-            message:
-              user.unpriceProvisioningError ??
-              'Billing setup did not finish. Retry from the usage card.',
-          }
-        : {}),
-    };
+    if (failed) {
+      return {
+        status: 'failed',
+        serverNow: now,
+        message:
+          user.unpriceProvisioningError ??
+          'Billing setup did not finish. Retry from the usage card.',
+      };
+    }
+
+    return { status: 'pending', serverNow: now };
   }
 
   const [subscription, tokenAccess, entitlements] = await Promise.all([
@@ -118,26 +107,12 @@ export async function getBillingProfile(
     getFlatEntitlements(user.unpriceCustomerId),
   ]);
   const plan = asBillingPlan(subscription.planSlug);
-  const hardLimit = tokenAccess.limit != null;
-  const allowance =
-    typeof tokenAccess.limit === 'number'
-      ? tokenAccess.limit
-      : plan === 'pro' || plan === 'enterprise'
-        ? PAID_INCLUDED_TOKEN_ALLOWANCE
-        : null;
 
   return {
     status: 'ready',
     serverNow: now,
     plan,
-    usage: tokenAccess.usage ?? 0,
-    allowance,
-    hardLimit,
-    usageResetsAt: getNextWindowBoundary(
-      now,
-      5,
-      subscription.currentCycleStartAt,
-    ),
+    ...normalizeBillingUsage(tokenAccess),
     cycleEndsAt: subscription.currentCycleEndAt,
     ...entitlements,
     canSelfUpgrade: plan === 'free',

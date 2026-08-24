@@ -1,6 +1,9 @@
 'use client';
 
-import type { BillingProfile } from '@/lib/unprice/billing-profile-types';
+import {
+  type BillingProfile,
+  getBillingProfileRefreshInterval,
+} from '@/lib/unprice/billing-profile-types';
 import { fetcher } from '@/lib/utils';
 import useSWR from 'swr';
 
@@ -12,12 +15,7 @@ export function useBillingProfile(enabled = true) {
     fetcher,
     {
       revalidateOnFocus: true,
-      refreshInterval: (profile) =>
-        profile?.status === 'pending'
-          ? 1_000
-          : profile?.status === 'ready'
-            ? 15_000
-            : 0,
+      refreshInterval: getBillingProfileRefreshInterval,
     },
   );
 

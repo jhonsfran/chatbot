@@ -1,11 +1,11 @@
 import { auth, isRegularUser } from '@/app/(auth)/auth';
 import { getUserById } from '@/lib/db/queries';
 import { ChatSDKError } from '@/lib/errors';
-import { provisionRegisteredUser } from '@/lib/unprice/provisioning';
 import {
-  getApplicationBaseUrl,
-  logUnpriceError,
-} from '@/lib/unprice/runtime';
+  claimRegisteredUserProvisioning,
+  provisionClaimedUser,
+} from '@/lib/unprice/provisioning';
+import { getApplicationBaseUrl, logUnpriceError } from '@/lib/unprice/runtime';
 import { after } from 'next/server';
 
 export async function POST(request: Request) {
@@ -26,12 +26,15 @@ export async function POST(request: Request) {
   }
 
   const applicationBaseUrl = getApplicationBaseUrl(request.headers);
+  const claim = await claimRegisteredUserProvisioning(user.id);
+
+  if (!claim) {
+    return Response.json({ status: 'provisioning' }, { status: 202 });
+  }
+
   after(async () => {
     try {
-      await provisionRegisteredUser({
-        userId: user.id,
-        applicationBaseUrl,
-      });
+      await provisionClaimedUser({ claim, applicationBaseUrl });
     } catch (error) {
       logUnpriceError('Provisioning retry failed', error);
     }
